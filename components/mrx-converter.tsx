@@ -25,7 +25,7 @@ import {
     ChevronRight,
     WifiOff
 } from 'lucide-react';
-import { cn } from '../lib/utils';
+import { cn, validateFileSize, downloadFile } from '../lib/utils';
 import { GridView } from './visualizer/grid-view';
 
 const ErrorBanner = ({ error, onDismiss }: { error: string, onDismiss: () => void }) => {
@@ -107,6 +107,13 @@ export function MrxConverter() {
         // Guard: prevent concurrent uploads
         if (isLoading) return;
 
+        // Security: Check file size
+        const sizeError = validateFileSize(file);
+        if (sizeError) {
+            setError(sizeError);
+            return;
+        }
+
         setIsLoading(true);
         setError(null);
         setFileName(file.name);
@@ -166,18 +173,6 @@ export function MrxConverter() {
         if (file) processFile(file);
     };
 
-    const downloadString = (str: string, name: string) => {
-        const blob = new Blob([str], { type: 'text/plain' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = name;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-    };
-
     const handleAction = async (type: 'ACK' | 'RESP' | 'CSV') => {
         if (!content || !originalFile) return;
         setError(null);
@@ -185,13 +180,13 @@ export function MrxConverter() {
         try {
             if (type === 'ACK') {
                 const result = await convertMrxToAckOnBackend(originalFile, mrxTimestamp);
-                downloadString(result.content, result.fileName);
+                downloadFile(result.content, result.fileName);
             } else if (type === 'RESP') {
                 const result = await convertMrxToRespOnBackend(originalFile, mrxTimestamp);
-                downloadString(result.content, result.fileName);
+                downloadFile(result.content, result.fileName);
             } else {
                 const result = await convertMrxToCsvOnBackend(originalFile);
-                downloadString(result.content, result.fileName || fileName?.replace('.txt', '.csv') || `MRX_EXPORT_${format(new Date(), 'yyyyMMddHHmmss')}.csv`);
+                downloadFile(result.content, result.fileName || fileName?.replace('.txt', '.csv') || `MRX_EXPORT_${format(new Date(), 'yyyyMMddHHmmss')}.csv`);
             }
         } catch (err: any) {
             console.warn('[MRX Forge] Conversion error:', err.message);
