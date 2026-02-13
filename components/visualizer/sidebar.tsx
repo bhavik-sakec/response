@@ -151,42 +151,7 @@ export function VisualizerSidebar({
                             </span>
                         </div>
                         <ScrollArea className="flex-1">
-                            <div className="p-0">
-                                {result.lines.filter((l: any) => !l.isValid).length === 0 ? (
-                                    <div className="p-8 text-center text-muted-foreground opacity-50 flex flex-col items-center gap-2">
-                                        <Check className="w-6 h-6" />
-                                        <span className="text-[10px]">NO ANOMALIES DETECTED</span>
-                                    </div>
-                                ) : (
-                                    result.lines.filter((l: any) => !l.isValid).map((line: any, i: number) => (
-                                        <div
-                                            key={i}
-                                            className="p-3 border-b border-border/50 hover:bg-red-500/10 transition-colors cursor-pointer group active:bg-red-500/20"
-                                            onClick={() => {
-                                                virtuosoRef.current?.scrollToIndex({
-                                                    index: line.lineNumber - 1,
-                                                    align: 'start',
-                                                });
-                                            }}
-                                        >
-                                            <div className="flex items-center gap-2 mb-1">
-                                                <span className="text-[10px] font-bold text-red-500 bg-red-500/10 px-1 py-0.5">LINE {line.lineNumber}</span>
-                                            </div>
-                                            <div className="text-[10px] text-muted-foreground font-mono leading-tight">
-                                                {line.globalError || (
-                                                    <span className="flex flex-col gap-1">
-                                                        {line.fields.filter((f: any) => !f.isValid).map((f: any, idx: number) => (
-                                                            <span key={idx} className="block text-red-400">
-                                                                [{f.def.name}] {f.error}
-                                                            </span>
-                                                        ))}
-                                                    </span>
-                                                )}
-                                            </div>
-                                        </div>
-                                    ))
-                                )}
-                            </div>
+                            <ErrorLogList result={result} virtuosoRef={virtuosoRef} />
                         </ScrollArea>
                     </div>
                 </div>
@@ -202,3 +167,49 @@ export function VisualizerSidebar({
         </aside>
     );
 }
+
+const ErrorLogList = React.memo(({ result, virtuosoRef }: { result: any, virtuosoRef: any }) => {
+    const invalidLines = React.useMemo(() => result.lines.filter((l: any) => !l.isValid), [result.lines]);
+
+    if (invalidLines.length === 0) {
+        return (
+            <div className="p-8 text-center text-muted-foreground opacity-50 flex flex-col items-center gap-2">
+                <Check className="w-6 h-6" />
+                <span className="text-[10px]">NO ANOMALIES DETECTED</span>
+            </div>
+        );
+    }
+
+    return (
+        <div className="p-0">
+            {invalidLines.map((line: any, i: number) => (
+                <div
+                    key={i}
+                    className="p-3 border-b border-border/50 hover:bg-red-500/10 transition-colors cursor-pointer group active:bg-red-500/20"
+                    onClick={() => {
+                        virtuosoRef.current?.scrollToIndex({
+                            index: line.lineNumber - 1,
+                            align: 'start',
+                        });
+                    }}
+                >
+                    <div className="flex items-center gap-2 mb-1">
+                        <span className="text-[10px] font-bold text-red-500 bg-red-500/10 px-1 py-0.5">LINE {line.lineNumber}</span>
+                    </div>
+                    <div className="text-[10px] text-muted-foreground font-mono leading-tight">
+                        {line.globalError || (
+                            <span className="flex flex-col gap-1">
+                                {line.fields.filter((f: any) => !f.isValid).map((f: any, idx: number) => (
+                                    <span key={idx} className="block text-red-400">
+                                        [{f.def.name}] {f.error}
+                                    </span>
+                                ))}
+                            </span>
+                        )}
+                    </div>
+                </div>
+            ))}
+        </div>
+    );
+});
+ErrorLogList.displayName = 'ErrorLogList';

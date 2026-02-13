@@ -214,27 +214,17 @@ export function AckVisualizer() {
                 summary: backendResponse.summary
             };
 
-            // Simulate processing animation
+            // Immediate processing - No artificial delay
             const total = backendResponse.lines.length;
-            let current = 0;
-            const interval = setInterval(() => {
-                const chunk = Math.min(500, total - current);
-                current += chunk;
-                setProcessedLines(current);
-                setProcessProgress(Math.round((current / total) * 100));
+            setProcessedLines(total);
+            setProcessProgress(100);
 
-                if (current >= total) {
-                    clearInterval(interval);
-                    // Set the raw content for editing/download support
-                    setContent(backendResponse.rawContent);
-                    // Set the backend parsed result directly
-                    setResult(parsedResult);
-                    setTimeout(() => {
-                        setIsLoading(false);
-                        setActivePhase('IDLE');
-                    }, 500);
-                }
-            }, 50);
+            // Set the raw content for editing/download support
+            setContent(backendResponse.rawContent);
+            // Set the backend parsed result directly
+            setResult(parsedResult);
+            setIsLoading(false);
+            setActivePhase('IDLE');
         } catch (err: any) {
             console.warn('[ACK Visualizer] Backend parsing error:', err.message);
             setError(
