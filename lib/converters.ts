@@ -1,8 +1,28 @@
 
 import { ParseResult, ParsedLine } from './ack-parser';
+import { MrxSchema } from './mrx-schema';
+
+// Precompute indices for performance
+const MRX_DATA_IDX = {
+    SenderClaimNumber: MrxSchema.data.findIndex(f => f.name === 'Sender Claim Number'),
+    ClaimLineNumber: MrxSchema.data.findIndex(f => f.name === 'Claim Line Number'),
+    MemberID: MrxSchema.data.findIndex(f => f.name === 'Member ID'),
+    PatientID: MrxSchema.data.findIndex(f => f.name === 'Patient ID'),
+    RenderingProviderNPI: MrxSchema.data.findIndex(f => f.name === 'Rendering Provider NPI #'),
+    ProviderTaxIDNumber: MrxSchema.data.findIndex(f => f.name === 'Provider Tax ID Number'),
+    AllowedAmount: MrxSchema.data.findIndex(f => f.name === 'Allowed Amount'),
+    UnitsQuantity: MrxSchema.data.findIndex(f => f.name === 'Units/Quantity'),
+    ProcedureCode: MrxSchema.data.findIndex(f => f.name === 'Procedure Code'),
+};
 
 function getFieldValue(line: ParsedLine, fieldName: string): string {
     const field = line.fields.find(f => f.def.name === fieldName);
+    return field ? field.value.trim() : '';
+}
+
+function getFieldValueByIndex(line: ParsedLine, index: number): string {
+    if (index === -1) return ''; // Safety check if field not found in schema
+    const field = line.fields[index];
     return field ? field.value.trim() : '';
 }
 
@@ -16,7 +36,7 @@ function pad(value: string | number, length: number, char: string = ' ', align: 
 export function convertMrxToAck(mrxResult: ParseResult, timestamp: string): string {
     const lines: string[] = [];
     const dateStr = timestamp.slice(0, 8); // YYYYMMDD
-    const timeStr = timestamp.slice(8, 14) || '000000'; // HHMMSS
+    // timeStr was unused
 
     // MRX Header
     const mrxHeader = mrxResult.lines.find(l => l.type === 'Header');
@@ -37,18 +57,18 @@ export function convertMrxToAck(mrxResult: ParseResult, timestamp: string): stri
 
     // --- ACK DATA ---
     const dataLines = mrxResult.lines.filter(l => l.type === 'Data');
-    dataLines.forEach((mrxLine, index) => {
+    dataLines.forEach((mrxLine) => { // Removed unused index
         if (!mrxLine.isValid) return; // Skip invalid lines? Or try to process?
 
-        const claimId = getFieldValue(mrxLine, 'Sender Claim Number');
-        const lineNum = getFieldValue(mrxLine, 'Claim Line Number');
-        const memberId = getFieldValue(mrxLine, 'Member ID');
-        const patientId = getFieldValue(mrxLine, 'Patient ID');
+        const claimId = getFieldValueByIndex(mrxLine, MRX_DATA_IDX.SenderClaimNumber);
+        const lineNum = getFieldValueByIndex(mrxLine, MRX_DATA_IDX.ClaimLineNumber);
+        const memberId = getFieldValueByIndex(mrxLine, MRX_DATA_IDX.MemberID);
+        const patientId = getFieldValueByIndex(mrxLine, MRX_DATA_IDX.PatientID);
         // Client Provider ID -> 16 chars. MRX doesn't have a direct "Client Provider ID", maybe use Tax ID or NPI?
         // Spec map: MRX Provider Tax ID -> ACK Client Provider ID? Or just NPI?
         // Let's use NPI padded.
-        const provNpi = getFieldValue(mrxLine, 'Rendering Provider NPI #');
-        const provTaxId = getFieldValue(mrxLine, 'Provider Tax ID Number');
+        const provNpi = getFieldValueByIndex(mrxLine, MRX_DATA_IDX.RenderingProviderNPI);
+        const provTaxId = getFieldValueByIndex(mrxLine, MRX_DATA_IDX.ProviderTaxIDNumber);
 
         let line = 'D';
         line += pad(claimId, 20, ' ', 'left');
@@ -93,21 +113,21 @@ export function convertMrxToResp(mrxResult: ParseResult, timestamp: string): str
 
     // --- RESP DATA ---
     const dataLines = mrxResult.lines.filter(l => l.type === 'Data');
-    dataLines.forEach((mrxLine, index) => {
-        const claimId = getFieldValue(mrxLine, 'Sender Claim Number');
-        const lineNum = getFieldValue(mrxLine, 'Claim Line Number');
-        const memberId = getFieldValue(mrxLine, 'Member ID');
-        const patientId = getFieldValue(mrxLine, 'Patient ID');
-        const provNpi = getFieldValue(mrxLine, 'Rendering Provider NPI #');
-        const provTin = getFieldValue(mrxLine, 'Provider Tax ID Number');
+    dataLines.forEach((mrxLine) => { // Removed unused index
+        const claimId = getFieldValueByIndex(mrxLine, MRX_DATA_IDX.SenderClaimNumber);
+        const lineNum = getFieldValueByIndex(mrxLine, MRX_DATA_IDX.ClaimLineNumber);
+        const memberId = getFieldValueByIndex(mrxLine, MRX_DATA_IDX.MemberID);
+        const patientId = getFieldValueByIndex(mrxLine, MRX_DATA_IDX.PatientID);
+        const provNpi = getFieldValueByIndex(mrxLine, MRX_DATA_IDX.RenderingProviderNPI);
+        const provTin = getFieldValueByIndex(mrxLine, MRX_DATA_IDX.ProviderTaxIDNumber);
         // MRX Assigned ID - generate dummy
         const mrxClaimNum = `PAYCODE${Math.floor(Math.random() * 100000).toString().padStart(5, '0')}`;
         const mrxLineNum = '001';
 
-        const allowedAmt = getFieldValue(mrxLine, 'Allowed Amount') || '0';
-        const units = getFieldValue(mrxLine, 'Units/Quantity') || '0';
-        const unitsInt = parseInt(units, 10);
-        const procCode = getFieldValue(mrxLine, 'Procedure Code');
+        const allowedAmt = getFieldValueByIndex(mrxLine, MRX_DATA_IDX.AllowedAmount) || '0';
+        const units = getFieldValueByIndex(mrxLine, MRX_DATA_IDX.UnitsQuantity) || '0';
+        // unitsInt was unused
+        const procCode = getFieldValueByIndex(mrxLine, MRX_DATA_IDX.ProcedureCode);
 
         let line = 'D';
         line += pad(claimId, 20, ' ', 'left');
