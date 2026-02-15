@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { memo } from 'react';
 import { cn } from '@/lib/utils';
 import { FileText, Upload, AlertTriangle, Check, ChevronLeft, ChevronRight, X, Activity } from 'lucide-react';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -22,7 +22,7 @@ interface VisualizerSidebarProps {
     virtuosoRef: React.RefObject<any>;
 }
 
-export function VisualizerSidebar({
+export const VisualizerSidebar = memo(({
     isSidebarOpen,
     setIsSidebarOpen,
     content,
@@ -37,7 +37,7 @@ export function VisualizerSidebar({
     setSchema,
     result,
     virtuosoRef
-}: VisualizerSidebarProps) {
+}: VisualizerSidebarProps) => {
     return (
         <aside
             className={cn(
@@ -201,4 +201,6 @@ export function VisualizerSidebar({
             />
         </aside>
     );
-}
+});
+
+VisualizerSidebar.displayName = 'VisualizerSidebar';

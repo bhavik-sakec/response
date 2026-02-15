@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { memo } from 'react';
 import { cn } from '@/lib/utils';
 
 interface StatBoxProps {
@@ -11,7 +11,7 @@ interface StatBoxProps {
     borderClass?: string;
 }
 
-export const StatBox = ({ label, value, icon: Icon, colorClass, borderClass }: StatBoxProps) => (
+export const StatBox = memo(({ label, value, icon: Icon, colorClass, borderClass }: StatBoxProps) => (
     <div className={cn("flex-1 flex flex-col justify-center px-6 border-r border-border min-w-[140px] transition-colors hover:bg-muted/30 group", borderClass)}>
         <div className="flex items-center justify-between mb-1">
             <span className="text-[10px] tracking-widest uppercase text-muted-foreground font-mono group-hover:text-foreground transition-colors">{label}</span>
@@ -21,4 +21,6 @@ export const StatBox = ({ label, value, icon: Icon, colorClass, borderClass }: S
             {value}
         </div>
     </div>
-);
+));
+
+StatBox.displayName = 'StatBox';

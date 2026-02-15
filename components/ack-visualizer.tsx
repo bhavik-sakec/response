@@ -60,6 +60,9 @@ const ErrorBanner = ({ error, onDismiss }: { error: string, onDismiss: () => voi
 
 const emptyResult = { lines: [], summary: { total: 0, valid: 0, invalid: 0, accepted: 0, rejected: 0 } };
 
+const isFieldEditable = (name: string) => ['Status', 'Reject ID', 'Reject Reason', 'MRx Claim Status', 'Units approved', 'Units Denied', 'Procedure Code', 'Denial Code', 'Adjustment reason'].includes(name);
+const isDropdownField = (name: string) => ['Status', 'Reject ID', 'MRx Claim Status', 'Denial Code'].includes(name);
+
 export function AckVisualizer() {
     const [content, setContent] = useState('');
     const [isLoading, setIsLoading] = useState(false);
@@ -101,7 +104,7 @@ export function AckVisualizer() {
         return () => clearInterval(interval);
     }, [error]);
 
-    const handleFieldUpdate = (lineIdx: number, fieldDef: any, newValue: string) => {
+    const handleFieldUpdate = useCallback((lineIdx: number, fieldDef: any, newValue: string) => {
         // Update raw content for download/copy
         setContent((prevContent: string) => {
             const lines = prevContent.split('\n');
@@ -141,26 +144,10 @@ export function AckVisualizer() {
             }
             return { ...prev, lines: newLines };
         });
-    };
+    }, []);
 
-    const isFieldEditable = (name: string) => ['Status', 'Reject ID', 'Reject Reason', 'MRx Claim Status', 'Units approved', 'Units Denied', 'Procedure Code', 'Denial Code', 'Adjustment reason'].includes(name);
-    const isDropdownField = (name: string) => ['Status', 'Reject ID', 'MRx Claim Status', 'Denial Code'].includes(name);
-
-    const handleDragOver = (e: React.DragEvent) => { e.preventDefault(); setIsDragging(true); };
-    const handleDragLeave = (e: React.DragEvent) => { e.preventDefault(); setIsDragging(false); };
-    const handleDrop = (e: React.DragEvent) => {
-        e.preventDefault();
-        setIsDragging(false);
-        if (isLoading) return;
-        const file = e.dataTransfer.files[0];
-        if (file) processFile(file);
-    };
-
-    const handleFileInput = (e: React.ChangeEvent<HTMLInputElement>) => {
-        if (isLoading) return;
-        const file = e.target.files?.[0];
-        if (file) processFile(file);
-    };
+    const handleDragOver = useCallback((e: React.DragEvent) => { e.preventDefault(); setIsDragging(true); }, []);
+    const handleDragLeave = useCallback((e: React.DragEvent) => { e.preventDefault(); setIsDragging(false); }, []);
 
     const processFile = useCallback(async (file: File) => {
         // Guard: prevent concurrent uploads
@@ -214,27 +201,14 @@ export function AckVisualizer() {
                 summary: backendResponse.summary
             };
 
-            // Simulate processing animation
+            // Instant processing update
             const total = backendResponse.lines.length;
-            let current = 0;
-            const interval = setInterval(() => {
-                const chunk = Math.min(500, total - current);
-                current += chunk;
-                setProcessedLines(current);
-                setProcessProgress(Math.round((current / total) * 100));
-
-                if (current >= total) {
-                    clearInterval(interval);
-                    // Set the raw content for editing/download support
-                    setContent(backendResponse.rawContent);
-                    // Set the backend parsed result directly
-                    setResult(parsedResult);
-                    setTimeout(() => {
-                        setIsLoading(false);
-                        setActivePhase('IDLE');
-                    }, 500);
-                }
-            }, 50);
+            setProcessedLines(total);
+            setProcessProgress(100);
+            setContent(backendResponse.rawContent);
+            setResult(parsedResult);
+            setIsLoading(false);
+            setActivePhase('IDLE');
         } catch (err: any) {
             console.warn('[ACK Visualizer] Backend parsing error:', err.message);
             setError(
@@ -247,7 +221,21 @@ export function AckVisualizer() {
         }
     }, [isLoading]);
 
-    const clearContent = () => {
+    const handleDrop = useCallback((e: React.DragEvent) => {
+        e.preventDefault();
+        setIsDragging(false);
+        if (isLoading) return;
+        const file = e.dataTransfer.files[0];
+        if (file) processFile(file);
+    }, [isLoading, processFile]);
+
+    const handleFileInput = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+        if (isLoading) return;
+        const file = e.target.files?.[0];
+        if (file) processFile(file);
+    }, [isLoading, processFile]);
+
+    const clearContent = useCallback(() => {
         setContent('');
         setProcessedLines(0);
         setProcessProgress(0);
@@ -255,10 +243,11 @@ export function AckVisualizer() {
         setFileName(null);
         setResult(emptyResult);
         setActivePhase('IDLE');
-    };
-    const handleCopy = () => { navigator.clipboard.writeText(content); };
+    }, []);
 
-    const downloadString = (str: string, name: string) => {
+    const handleCopy = useCallback(() => { navigator.clipboard.writeText(content); }, [content]);
+
+    const downloadString = useCallback((str: string, name: string) => {
         const blob = new Blob([str], { type: 'text/plain' });
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
@@ -268,12 +257,12 @@ export function AckVisualizer() {
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
-    };
+    }, []);
 
-    const handleDownload = () => {
+    const handleDownload = useCallback(() => {
         const downloadName = fileName || `${schema}_EXPORT_${format(new Date(), 'yyyyMMddHHmmss')}.txt`;
         if (content) downloadString(content, downloadName);
-    };
+    }, [content, fileName, schema, downloadString]);
 
     return (
         <div className="h-full flex bg-background text-foreground font-mono text-sm overflow-hidden">
