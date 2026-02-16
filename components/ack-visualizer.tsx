@@ -3,7 +3,7 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { parseFileOnBackend, ApiError, checkHealth } from '@/lib/api';
 import { Button } from '@/components/ui/button';
-import { Check, Activity, AlertTriangle, ShieldAlert, Copy, Download, X, WifiOff, ArrowUp } from 'lucide-react';
+import { Check, Activity, AlertTriangle, ShieldAlert, Copy, Download, X, WifiOff } from 'lucide-react';
 import { format } from 'date-fns';
 
 // Extracted Components
@@ -61,7 +61,7 @@ const ErrorBanner = ({ error, onDismiss }: { error: string, onDismiss: () => voi
 const emptyResult = { lines: [], summary: { total: 0, valid: 0, invalid: 0, accepted: 0, rejected: 0 } };
 
 export function AckVisualizer() {
-    const [content, setContent] = useState('');
+    const [content, setContent] = useState<string[]>([]);
     const [isLoading, setIsLoading] = useState(false);
     const [uploadProgress, setUploadProgress] = useState(0);
     const [processProgress, setProcessProgress] = useState(0);
@@ -79,7 +79,6 @@ export function AckVisualizer() {
 
     const [result, setResult] = useState<any>(emptyResult);
     const [error, setError] = useState<string | null>(null);
-    const [isReconnecting, setIsReconnecting] = useState(false);
 
     // Self-Healing Logic: Polling backend status when in error state
     useEffect(() => {
@@ -88,14 +87,12 @@ export function AckVisualizer() {
         let pollCount = 0;
         const interval = setInterval(async () => {
             pollCount++;
-            setIsReconnecting(true);
             const isAlive = await checkHealth();
             if (isAlive) {
                 setError(null);
-                setIsReconnecting(false);
                 clearInterval(interval);
             }
-            if (pollCount > 20) setIsReconnecting(false); // Stop pulse animation if it takes too long
+            if (pollCount > 20) clearInterval(interval); // Stop pulse animation if it takes too long
         }, 3000);
 
         return () => clearInterval(interval);
@@ -103,9 +100,9 @@ export function AckVisualizer() {
 
     const handleFieldUpdate = (lineIdx: number, fieldDef: any, newValue: string) => {
         // Update raw content for download/copy
-        setContent((prevContent: string) => {
-            const lines = prevContent.split('\n');
-            const line = lines[lineIdx];
+        setContent((prevContent: string[]) => {
+            const newContent = [...prevContent];
+            const line = newContent[lineIdx];
             if (!line) return prevContent;
 
             let val = newValue;
@@ -117,8 +114,8 @@ export function AckVisualizer() {
             val = val.slice(0, fieldDef.length);
 
             const newLine = line.substring(0, fieldDef.start - 1) + val + line.substring(fieldDef.end);
-            lines[lineIdx] = newLine;
-            return lines.join('\n');
+            newContent[lineIdx] = newLine;
+            return newContent;
         });
 
         // Update the stored parsed result directly (no re-parsing needed)
@@ -214,27 +211,18 @@ export function AckVisualizer() {
                 summary: backendResponse.summary
             };
 
-            // Simulate processing animation
-            const total = backendResponse.lines.length;
-            let current = 0;
-            const interval = setInterval(() => {
-                const chunk = Math.min(500, total - current);
-                current += chunk;
-                setProcessedLines(current);
-                setProcessProgress(Math.round((current / total) * 100));
+            // Directly set results - removed artificial delay loop for performance
+            setProcessedLines(backendResponse.lines.length);
+            setProcessProgress(100);
 
-                if (current >= total) {
-                    clearInterval(interval);
-                    // Set the raw content for editing/download support
-                    setContent(backendResponse.rawContent);
-                    // Set the backend parsed result directly
-                    setResult(parsedResult);
-                    setTimeout(() => {
-                        setIsLoading(false);
-                        setActivePhase('IDLE');
-                    }, 500);
-                }
-            }, 50);
+            // Set the raw content for editing/download support as array of lines
+            setContent(backendResponse.rawContent.split('\n'));
+            // Set the backend parsed result directly
+            setResult(parsedResult);
+
+            setIsLoading(false);
+            setActivePhase('IDLE');
+
         } catch (err: any) {
             console.warn('[ACK Visualizer] Backend parsing error:', err.message);
             setError(
@@ -248,7 +236,7 @@ export function AckVisualizer() {
     }, [isLoading]);
 
     const clearContent = () => {
-        setContent('');
+        setContent([]);
         setProcessedLines(0);
         setProcessProgress(0);
         setUploadProgress(0);
@@ -256,7 +244,7 @@ export function AckVisualizer() {
         setResult(emptyResult);
         setActivePhase('IDLE');
     };
-    const handleCopy = () => { navigator.clipboard.writeText(content); };
+    const handleCopy = () => { navigator.clipboard.writeText(content.join('\n')); };
 
     const downloadString = (str: string, name: string) => {
         const blob = new Blob([str], { type: 'text/plain' });
@@ -272,7 +260,7 @@ export function AckVisualizer() {
 
     const handleDownload = () => {
         const downloadName = fileName || `${schema}_EXPORT_${format(new Date(), 'yyyyMMddHHmmss')}.txt`;
-        if (content) downloadString(content, downloadName);
+        if (content.length > 0) downloadString(content.join('\n'), downloadName);
     };
 
     return (
@@ -280,7 +268,7 @@ export function AckVisualizer() {
             <VisualizerSidebar
                 isSidebarOpen={isSidebarOpen}
                 setIsSidebarOpen={setIsSidebarOpen}
-                content={content}
+                hasContent={content.length > 0}
                 schema={schema}
                 isDragging={isDragging}
                 handleDragOver={handleDragOver}
@@ -319,8 +307,8 @@ export function AckVisualizer() {
                     </div>
 
                     <div className="flex-[1] flex items-center justify-end px-6 gap-3">
-                        <Button variant="outline" size="sm" className="h-9 gap-2 text-xs border-dashed hover:border-primary transition-all" onClick={handleCopy} disabled={!content}><Copy className="w-3.5 h-3.5" /> COPY</Button>
-                        <Button variant="secondary" size="sm" className="h-9 gap-2 text-xs font-bold" onClick={handleDownload} disabled={!content}><Download className="w-3.5 h-3.5" /> DOWNLOAD</Button>
+                        <Button variant="outline" size="sm" className="h-9 gap-2 text-xs border-dashed hover:border-primary transition-all" onClick={handleCopy} disabled={content.length === 0}><Copy className="w-3.5 h-3.5" /> COPY</Button>
+                        <Button variant="secondary" size="sm" className="h-9 gap-2 text-xs font-bold" onClick={handleDownload} disabled={content.length === 0}><Download className="w-3.5 h-3.5" /> DOWNLOAD</Button>
                     </div>
                 </header>
 
@@ -336,7 +324,7 @@ export function AckVisualizer() {
                     <LoadingOverlay isLoading={isLoading} activePhase={activePhase} uploadProgress={uploadProgress} processProgress={processProgress} processedLines={processedLines} />
 
                     <div className="flex-1 w-full bg-muted/10 overflow-hidden relative">
-                        {!content ? (
+                        {content.length === 0 ? (
                             <div className="h-full flex flex-col items-center justify-center w-full p-8">
                                 <div className="flex flex-col items-center justify-center text-muted-foreground opacity-20 gap-4 mb-4">
                                     <Activity className="w-24 h-24 stroke-[0.5]" />
