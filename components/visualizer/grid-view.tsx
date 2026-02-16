@@ -365,9 +365,10 @@ export function GridView({
     return (
         <div 
             ref={containerRef}
-            className="flex-1 relative h-full w-full focus:outline-none"
+            className="flex-1 relative h-full w-full focus:outline-none focus:ring-1 focus:ring-primary/20 focus:ring-inset group/grid"
             onKeyDown={handleKeyDown}
             tabIndex={0}
+            aria-label="Data Grid"
         >
             <div className="absolute inset-0">
                 <Virtuoso
@@ -398,6 +399,13 @@ export function GridView({
                         />
                     )}
                 />
+            </div>
+
+            {/* Subtle Keyboard Hint */}
+            <div className="absolute bottom-4 right-6 pointer-events-none opacity-0 group-focus/grid:opacity-100 transition-opacity flex items-center gap-2 bg-background/50 backdrop-blur-sm border border-border px-2 py-1 rounded text-[9px] text-muted-foreground font-mono uppercase tracking-tighter z-50">
+                <span className="bg-muted px-1 rounded border border-border/50 text-foreground">Arrows</span> Navigate
+                <span className="bg-muted px-1 rounded border border-border/50 text-foreground ml-2">Enter</span> Edit
+                <span className="bg-muted px-1 rounded border border-border/50 text-foreground ml-2">Shift+Space</span> Select
             </div>
         </div>
     );
