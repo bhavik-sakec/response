@@ -8,7 +8,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 interface VisualizerSidebarProps {
     isSidebarOpen: boolean;
     setIsSidebarOpen: (o: boolean) => void;
-    content: string;
+    hasContent: boolean;
     schema: 'ACK' | 'RESP' | 'MRX';
     isDragging: boolean;
     handleDragOver: (e: React.DragEvent) => void;
@@ -25,7 +25,7 @@ interface VisualizerSidebarProps {
 export function VisualizerSidebar({
     isSidebarOpen,
     setIsSidebarOpen,
-    content,
+    hasContent,
     schema,
     isDragging,
     handleDragOver,
@@ -102,7 +102,7 @@ export function VisualizerSidebar({
                             className={cn(
                                 "relative h-48 border border-dashed border-border transition-all duration-300 flex flex-col items-center justify-center gap-3 cursor-pointer overflow-hidden group hover:border-primary/50",
                                 isDragging && "bg-primary/10 border-primary animate-pulse",
-                                content ? "bg-muted/20" : "bg-transparent"
+                                hasContent ? "bg-muted/20" : "bg-transparent"
                             )}
                             onDragOver={handleDragOver}
                             onDragLeave={handleDragLeave}
@@ -112,7 +112,7 @@ export function VisualizerSidebar({
                             {/* Background Grid Effect */}
                             <div className="absolute inset-0 opacity-[0.03] bg-[linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-[size:10px_10px]" />
 
-                            {content ? (
+                            {hasContent ? (
                                 <>
                                     <FileText className="w-8 h-8 text-primary group-hover:scale-110 transition-transform" />
                                     <div className="text-xs text-center">
@@ -131,7 +131,7 @@ export function VisualizerSidebar({
                             )}
                         </div>
 
-                        {content && (
+                        {hasContent && (
                             <div className="mt-4 flex gap-2">
                                 <button
                                     onClick={clearContent}
