@@ -141,12 +141,10 @@ export function MrxConverter() {
                 summary: backendResponse.summary
             };
 
-            // Artificial delay for "processing" feel
-            setTimeout(() => {
-                setContent(backendResponse.rawContent);
-                setResult(parsedResult);
-                setIsLoading(false);
-            }, 800);
+            // Immediate processing - No artificial delay
+            setContent(backendResponse.rawContent);
+            setResult(parsedResult);
+            setIsLoading(false);
         } catch (err: any) {
             console.warn('[MRX Forge] API Error:', err.message);
             setError(
