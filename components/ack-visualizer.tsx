@@ -5,6 +5,7 @@ import { parseFileOnBackend, ApiError, checkHealth } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Check, Activity, AlertTriangle, ShieldAlert, Copy, Download, X, WifiOff, ArrowUp } from 'lucide-react';
 import { format } from 'date-fns';
+import { validateFileSize, downloadFile } from '@/lib/utils';
 
 // Extracted Components
 import { StatBox } from './visualizer/stat-box';
@@ -166,6 +167,13 @@ export function AckVisualizer() {
         // Guard: prevent concurrent uploads
         if (isLoading) return;
 
+        // Security: Check file size
+        const sizeError = validateFileSize(file);
+        if (sizeError) {
+            setError(sizeError);
+            return;
+        }
+
         setIsLoading(true);
         setFileName(file.name);
         setError(null);
@@ -258,21 +266,9 @@ export function AckVisualizer() {
     };
     const handleCopy = () => { navigator.clipboard.writeText(content); };
 
-    const downloadString = (str: string, name: string) => {
-        const blob = new Blob([str], { type: 'text/plain' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        a.href = url;
-        a.download = name;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        URL.revokeObjectURL(url);
-    };
-
     const handleDownload = () => {
         const downloadName = fileName || `${schema}_EXPORT_${format(new Date(), 'yyyyMMddHHmmss')}.txt`;
-        if (content) downloadString(content, downloadName);
+        if (content) downloadFile(content, downloadName);
     };
 
     return (
