@@ -286,7 +286,7 @@ export function GridView({
                                 index={index}
                                 line={result.lines[index]}
                                 schema={schema}
-                                editingField={editingField}
+                                editingField={editingField?.lineIdx === index ? editingField : null}
                                 setEditingField={setEditingField}
                                 handleFieldUpdate={handleFieldUpdate}
                                 isFieldEditable={isFieldEditable}
