@@ -40,6 +40,8 @@ const GridList = React.forwardRef<HTMLDivElement, React.HTMLAttributes<HTMLDivEl
     );
 });
 
+const NARROW_COLUMNS = new Set(['Claim Line Number', 'MRx Claim Line Number']);
+
 // Memoized Row Component
 const GridRow = memo(({
     index,
@@ -144,10 +146,12 @@ const GridRow = memo(({
                                     !field.isValid && "text-rose-500 bg-rose-500/10 border-rose-500/20 font-bold",
                                     isActive ? "border-primary ring-1 ring-primary z-10 bg-primary/5 shadow-[0_0_10px_rgba(var(--primary-rgb),0.2)]" : "border-transparent hover:border-border/30"
                                 )}
-                                style={{
-                                    width: `${Math.max(field.def.length * 12, 45)}px`,
-                                    minWidth: `${Math.max(field.def.length * 12, 45)}px`
-                                }}
+                                style={(() => {
+                                    const w = NARROW_COLUMNS.has(field.def.name)
+                                        ? Math.max(field.def.length * 8, 32)
+                                        : Math.max(field.def.length * 12, 45);
+                                    return { width: `${w}px`, minWidth: `${w}px` };
+                                })()}
                             >
                                 { (field.def.editable || isFieldEditable?.(field.def.name)) ? (
                                     (field.def.uiType === 'dropdown' || isDropdownField?.(field.def.name)) ? (
