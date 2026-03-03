@@ -78,6 +78,7 @@ export async function parseFileOnBackend(file: File): Promise<{
     summary: { total: number; valid: number; invalid: number; accepted: number; rejected: number };
     detectedSchema: 'ACK' | 'RESP' | 'MRX' | 'INVALID';
     rawContent: string;
+    validationErrors?: string[];
 }> {
     const formData = new FormData();
     formData.append('file', file);
@@ -128,10 +129,24 @@ export async function parseTextOnBackend(text: string): Promise<{
 /**
  * Convert MRX file to ACK format on the backend.
  */
-export async function convertMrxToAckOnBackend(file: File, timestamp: string): Promise<{ content: string; fileName: string }> {
+export async function convertMrxToAckOnBackend(
+    file: File,
+    timestamp: string,
+    modConfig?: {
+        rejectPercentage?: number;
+        rejectCount?: number;
+        randomizeRejectCodes?: boolean;
+    }
+): Promise<{ content: string; fileName: string }> {
     const formData = new FormData();
     formData.append('file', file);
     formData.append('timestamp', timestamp);
+
+    if (modConfig) {
+        if (modConfig.rejectPercentage !== undefined) formData.append('rejectPercentage', String(modConfig.rejectPercentage));
+        if (modConfig.rejectCount !== undefined) formData.append('rejectCount', String(modConfig.rejectCount));
+        if (modConfig.randomizeRejectCodes !== undefined) formData.append('randomizeRejectCodes', String(modConfig.randomizeRejectCodes));
+    }
 
     const response = await safeFetch(`${API_BASE_URL}${ENDPOINTS.CONVERT_ACK}`, {
         method: 'POST',
@@ -151,11 +166,34 @@ export async function convertMrxToAckOnBackend(file: File, timestamp: string): P
 
 /**
  * Convert MRX file to RESP format on the backend.
+ * Optionally applies deny/partial modifications to the generated output.
  */
-export async function convertMrxToRespOnBackend(file: File, timestamp: string): Promise<{ content: string; fileName: string }> {
+export async function convertMrxToRespOnBackend(
+    file: File,
+    timestamp: string,
+    modConfig?: {
+        denyPercentage?: number;
+        denyCount?: number;
+        denialCode?: string;
+        partialPercentage?: number;
+        partialCount?: number;
+        partialApprovedPercent?: number;
+        randomizeDenialCodes?: boolean;
+    }
+): Promise<{ content: string; fileName: string }> {
     const formData = new FormData();
     formData.append('file', file);
     formData.append('timestamp', timestamp);
+
+    if (modConfig) {
+        if (modConfig.denyPercentage !== undefined) formData.append('denyPercentage', String(modConfig.denyPercentage));
+        if (modConfig.denyCount !== undefined) formData.append('denyCount', String(modConfig.denyCount));
+        if (modConfig.denialCode) formData.append('denialCode', modConfig.denialCode);
+        if (modConfig.partialPercentage !== undefined) formData.append('partialPercentage', String(modConfig.partialPercentage));
+        if (modConfig.partialCount !== undefined) formData.append('partialCount', String(modConfig.partialCount));
+        if (modConfig.partialApprovedPercent !== undefined) formData.append('partialApprovedPercent', String(modConfig.partialApprovedPercent));
+        if (modConfig.randomizeDenialCodes !== undefined) formData.append('randomizeDenialCodes', String(modConfig.randomizeDenialCodes));
+    }
 
     const response = await safeFetch(`${API_BASE_URL}${ENDPOINTS.CONVERT_RESP}`, {
         method: 'POST',

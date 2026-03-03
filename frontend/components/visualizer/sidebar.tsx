@@ -67,36 +67,6 @@ export function VisualizerSidebar({
             {isSidebarOpen ? (
                 <div className="flex-1 flex flex-col min-h-0 overflow-hidden animate-in fade-in zoom-in-95 duration-200">
                     <div className="p-4 border-b border-border space-y-4 pt-6">
-                        {/* PROTOCOL SWITCH TOGGLE */}
-                        <div className="space-y-2">
-                            <label className="text-[11px] uppercase tracking-widest text-muted-foreground block font-bold">Protocol Engine</label>
-                            <div className="grid grid-cols-2 p-1 bg-muted/30 border border-border rounded-lg relative overflow-hidden h-10">
-                                <div
-                                    className={cn(
-                                        "absolute top-1 bottom-1 w-[calc(50%-4px)] bg-primary/20 border border-primary/30 rounded-md transition-all duration-300 ease-out",
-                                        schema === 'ACK' ? "left-1" : "left-[calc(50%+1px)]"
-                                    )}
-                                />
-                                <button
-                                    onClick={() => setSchema('ACK')}
-                                    className={cn(
-                                        "relative z-10 text-[11px] font-black uppercase tracking-widest flex items-center justify-center gap-2 transition-colors",
-                                        schema === 'ACK' ? "text-primary" : "text-muted-foreground hover:text-foreground"
-                                    )}
-                                >
-                                    <FileText className="w-3 h-3" /> ACK
-                                </button>
-                                <button
-                                    onClick={() => setSchema('RESP')}
-                                    className={cn(
-                                        "relative z-10 text-[11px] font-black uppercase tracking-widest flex items-center justify-center gap-2 transition-colors",
-                                        schema === 'RESP' ? "text-primary" : "text-muted-foreground hover:text-foreground"
-                                    )}
-                                >
-                                    <Activity className="w-3 h-3" /> RESP
-                                </button>
-                            </div>
-                        </div>
                         {/* DROPZONE */}
                         <div
                             className={cn(

@@ -80,10 +80,9 @@ public class UnifiedParserController {
 
             UnifiedParseResponse response = unifiedParserService.parseFile(fileContent, fileNameHint);
 
-            if ("INVALID".equals(response.getDetectedSchema())) {
-                return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
-            }
-
+            // Always return 200 — frontend checks detectedSchema to handle INVALID itself.
+            // Returning 400 for INVALID caused ApiError to be thrown before the friendly
+            // "Invalid file format" message could be shown.
             return ResponseEntity.ok(response);
 
         } catch (IOException e) {
@@ -91,7 +90,7 @@ public class UnifiedParserController {
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         } catch (Exception e) {
             log.error("Error parsing file", e);
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST).build();
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }
 
@@ -108,15 +107,12 @@ public class UnifiedParserController {
 
             UnifiedParseResponse response = unifiedParserService.parseFile(fileContent, null);
 
-            if ("INVALID".equals(response.getDetectedSchema())) {
-                return ResponseEntity.status(HttpStatus.BAD_REQUEST).body(response);
-            }
-
+            // Always return 200 — let the frontend handle INVALID schema gracefully.
             return ResponseEntity.ok(response);
 
         } catch (Exception e) {
             log.error("Error parsing text content", e);
-            return ResponseEntity.status(HttpStatus.BAD_REQUEST).build();
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
     }
 
@@ -156,7 +152,10 @@ public class UnifiedParserController {
     @PostMapping(value = { "/mrx/convert/ack", "/convert/mrx-to-ack" }, consumes = "multipart/form-data")
     public ResponseEntity<Map<String, String>> convertMrxToAck(
             @RequestParam("file") MultipartFile file,
-            @RequestParam(value = "timestamp", defaultValue = "") String timestamp) {
+            @RequestParam(value = "timestamp", defaultValue = "") String timestamp,
+            @RequestParam(value = "rejectPercentage", defaultValue = "0") int rejectPercentage,
+            @RequestParam(value = "rejectCount", defaultValue = "0") int rejectCount,
+            @RequestParam(value = "randomizeRejectCodes", defaultValue = "false") boolean randomizeRejectCodes) {
         try {
             // SECURITY: Validate input to prevent XSS/Injection in filename
             validateTimestamp(timestamp);
@@ -170,7 +169,8 @@ public class UnifiedParserController {
                         .format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMddHHmmss"));
             }
 
-            String ackContent = unifiedParserService.convertMrxToAck(fileContent, timestamp);
+            String ackContent = unifiedParserService.convertMrxToAck(fileContent, timestamp,
+                    Math.max(0, Math.min(100, rejectPercentage)), rejectCount, randomizeRejectCodes);
 
             return ResponseEntity.ok(Map.of(
                     "content", ackContent,
@@ -198,13 +198,19 @@ public class UnifiedParserController {
     @PostMapping(value = { "/mrx/convert/resp", "/convert/mrx-to-resp" }, consumes = "multipart/form-data")
     public ResponseEntity<Map<String, String>> convertMrxToResp(
             @RequestParam("file") MultipartFile file,
-            @RequestParam(value = "timestamp", defaultValue = "") String timestamp) {
+            @RequestParam(value = "timestamp", defaultValue = "") String timestamp,
+            @RequestParam(value = "denyPercentage", defaultValue = "0") int denyPercentage,
+            @RequestParam(value = "denyCount", defaultValue = "0") int denyCount,
+            @RequestParam(value = "denialCode", defaultValue = "") String denialCode,
+            @RequestParam(value = "partialPercentage", defaultValue = "0") int partialPercentage,
+            @RequestParam(value = "partialCount", defaultValue = "0") int partialCount,
+            @RequestParam(value = "partialApprovedPercent", defaultValue = "50") int partialApprovedPercent,
+            @RequestParam(value = "randomizeDenialCodes", defaultValue = "false") boolean randomizeDenialCodes) {
         try {
-            // SECURITY: Validate input
             validateTimestamp(timestamp);
             timestamp = cleanTimestamp(timestamp);
 
-            log.info("Converting MRX to RESP");
+            log.info("Converting MRX to RESP [deny={}%, partial={}%]", denyPercentage, partialPercentage);
 
             String fileContent = new String(file.getBytes(), StandardCharsets.UTF_8);
             if (timestamp.isEmpty()) {
@@ -212,7 +218,12 @@ public class UnifiedParserController {
                         .format(java.time.format.DateTimeFormatter.ofPattern("yyyyMMddHHmmss"));
             }
 
-            String respContent = unifiedParserService.convertMrxToResp(fileContent, timestamp);
+            String respContent = unifiedParserService.convertMrxToResp(
+                    fileContent, timestamp,
+                    Math.max(0, Math.min(100, denyPercentage)), denyCount, denialCode,
+                    Math.max(0, Math.min(100, partialPercentage)), partialCount,
+                    Math.max(1, Math.min(99, partialApprovedPercent)),
+                    randomizeDenialCodes);
 
             return ResponseEntity.ok(Map.of(
                     "content", respContent,

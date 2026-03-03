@@ -135,19 +135,48 @@ const GridRow = memo(({
         f.def.name === 'MRx Claim Status' && f.value.trim() === 'PA'
     );
 
+    // Backend sets lengthError=true when line overflows or fields are missing/truncated
+    const rowHasLengthError = line.fields.some(f => f.lengthError);
+    // Any other backend-flagged invalidity (schema errors, expected value mismatches, etc.)
+    const rowHasSchemaError = !line.isValid && !rowHasLengthError;
+
     return (
         <div className={cn(
             "flex items-stretch transition-colors border-b border-border/40",
             isSelected
                 ? "bg-primary/10"
-                : isRejected
-                    ? "bg-amber-400/15 hover:bg-amber-400/25 border-amber-400/30"
-                    : isPartial
-                        ? "bg-violet-400/15 hover:bg-violet-400/25 border-violet-400/30"
-                        : "hover:bg-muted/30"
+                : rowHasLengthError
+                    // Structural length error — strongest red, always wins
+                    ? "bg-rose-500/20 hover:bg-rose-500/30 border-rose-500/40 border-l-4 border-l-rose-500"
+                    : rowHasSchemaError
+                        // Schema/value error — softer rose tint
+                        ? "bg-rose-500/8 hover:bg-rose-500/15 border-rose-500/25 border-l-2 border-l-rose-400"
+                        : isRejected
+                            ? "bg-amber-400/15 hover:bg-amber-400/25 border-amber-400/30"
+                            : isPartial
+                                ? "bg-violet-400/15 hover:bg-violet-400/25 border-violet-400/30"
+                                : "hover:bg-muted/30"
         )}>
-            <div className="w-14 py-2 flex items-center justify-center px-4 text-[11px] text-muted-foreground font-medium border-r border-border/50 shrink-0 select-none">
+            <div className={cn(
+                "w-14 py-2 flex items-center justify-center px-4 text-[11px] font-medium border-r border-border/50 shrink-0 select-none",
+                rowHasLengthError
+                    ? "text-rose-400 font-black bg-rose-500/10"
+                    : rowHasSchemaError
+                        ? "text-rose-400 font-bold"
+                        : "text-muted-foreground"
+            )}
+                title={
+                    rowHasLengthError
+                        ? 'This row has field length violations (line too long or too short)'
+                        : rowHasSchemaError
+                            ? `Schema error: ${line.globalError ?? 'one or more fields failed validation'}`
+                            : undefined
+                }
+            >
                 {index + 1}
+                {(rowHasLengthError || rowHasSchemaError) && (
+                    <span className="ml-1 text-rose-500 text-[9px] font-black leading-none">!</span>
+                )}
             </div>
 
             <div className="flex px-1 py-1 gap-0 items-center">
@@ -170,13 +199,20 @@ const GridRow = memo(({
                                 minWidth: `${getColumnWidth(field.def.name)}px`
                             }}
                         >
-                            <div className={cn(
-                                "w-full h-7 flex items-center justify-center px-1.5 rounded-md border transition-all duration-200 text-center",
-                                isActive
-                                    ? "bg-background border-primary/60 shadow-[inset_0_0_4px_rgba(var(--primary-rgb),0.1)]"
-                                    : "bg-transparent border-transparent hover:bg-muted/10 hover:border-muted-foreground/20",
-                                !field.isValid && "border-destructive/50 bg-destructive/5 text-destructive"
-                            )}>
+                            <div
+                                className={cn(
+                                    "w-full h-7 flex items-center justify-center px-1.5 rounded-md border transition-all duration-200 text-center",
+                                    isActive
+                                        ? "bg-background border-primary/60 shadow-[inset_0_0_4px_rgba(var(--primary-rgb),0.1)]"
+                                        : "bg-transparent border-transparent hover:bg-muted/10 hover:border-muted-foreground/20",
+                                    !field.isValid && "border-destructive/50 bg-destructive/5 text-destructive",
+                                    field.lengthError && "!border-rose-500/70 !bg-rose-500/10 !text-rose-400"
+                                )}
+                                title={field.lengthError
+                                    ? (field.error ?? `Length error: expected ${field.def.length} chars`)
+                                    : undefined
+                                }
+                            >
                                 {canEdit ? (
                                     isSelect ? (
                                         <Select

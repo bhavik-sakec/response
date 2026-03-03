@@ -84,6 +84,7 @@ public class UnifiedParserService {
                     List<String> alignmentTips = new ArrayList<>();
                     String globalError = null;
 
+                    // Validate line length against schema — applies to ALL schemas including MRX
                     if (raw.length() != expectedLineLength) {
                         lineIsValid = false;
                         globalError = String.format("Length Mismatch (%d/%d)", raw.length(), expectedLineLength);
@@ -96,28 +97,53 @@ public class UnifiedParserService {
                     }
 
                     if (!"Unknown".equals(type)) {
+                        // Detect overflow once before looping — applies to all schemas
+                        boolean lineOverflow = raw.length() > expectedLineLength;
+                        int overflowBy = lineOverflow ? raw.length() - expectedLineLength : 0;
+
                         for (FieldDefinitionDTO fieldDef : schemaFields) {
                             int startIdx = fieldDef.getStart() - 1;
                             int endIdx = fieldDef.getEnd();
 
+                            boolean fieldLengthError = false;
+                            String fieldError = null;
                             String value;
-                            if (startIdx >= raw.length()) {
+
+                            if (lineOverflow) {
+                                // Line too long — field data is technically there but line is malformed
+                                value = raw.substring(startIdx, endIdx); // safe — line is longer
+                                fieldLengthError = true;
+                                fieldError = String.format(
+                                        "Line OVERFLOWS by %d char(s) (actual %d, expected %d)",
+                                        overflowBy, raw.length(), expectedLineLength);
+                            } else if (startIdx >= raw.length()) {
+                                // Field position is completely beyond the end of the line
                                 value = " ".repeat(fieldDef.getLength());
+                                fieldLengthError = true;
+                                fieldError = String.format(
+                                        "Field missing: line ends at col %d, field starts at col %d",
+                                        raw.length(), fieldDef.getStart());
                             } else if (endIdx > raw.length()) {
+                                // Field is partially present — line is too short
                                 String partial = raw.substring(startIdx);
-                                value = partial + " ".repeat(fieldDef.getLength() - partial.length());
+                                int missing = fieldDef.getLength() - partial.length();
+                                value = partial + " ".repeat(missing);
+                                fieldLengthError = true;
+                                fieldError = String.format(
+                                        "Field truncated: expected %d chars, only %d available (missing %d)",
+                                        fieldDef.getLength(), partial.length(), missing);
                             } else {
                                 value = raw.substring(startIdx, endIdx);
                             }
 
-                            boolean fieldValid = true;
-                            String fieldError = null;
+                            boolean fieldValid = !fieldLengthError;
 
-                            if (fieldDef.getExpectedValue() != null
+                            // Check expected value when field is fully present (all schemas)
+                            if (!fieldLengthError && fieldDef.getExpectedValue() != null
                                     && !value.trim().equals(fieldDef.getExpectedValue())) {
                                 fieldValid = false;
                                 fieldError = String.format("Expected '%s', found '%s'", fieldDef.getExpectedValue(),
-                                        value);
+                                        value.trim());
                             }
 
                             if (!fieldValid)
@@ -128,6 +154,7 @@ public class UnifiedParserService {
                                     .value(value)
                                     .isValid(fieldValid)
                                     .error(fieldError)
+                                    .lengthError(fieldLengthError)
                                     .build());
                         }
                     }
@@ -147,10 +174,10 @@ public class UnifiedParserService {
                             .rawLength(raw.length())
                             .alignmentTips(alignmentTips.isEmpty() ? null : alignmentTips)
                             .build();
-                })
-                .collect(java.util.stream.Collectors.collectingAndThen(
-                        java.util.stream.Collectors.toList(),
-                        parsedLines -> {
+                }).collect(java.util.stream.Collectors.collectingAndThen(java.util.stream.Collectors.toList(),
+                        parsedLines ->
+
+                        {
                             // Re-assign line numbers after parallel processing (since order might matter
                             // for UI)
                             for (int i = 0; i < parsedLines.size(); i++) {
@@ -361,6 +388,11 @@ public class UnifiedParserService {
     }
 
     public String convertMrxToAck(String mrxContent, String timestamp) {
+        return convertMrxToAck(mrxContent, timestamp, 0, 0, false);
+    }
+
+    public String convertMrxToAck(String mrxContent, String timestamp, int rejectPercentage, int rejectCount,
+            boolean randomizeRejectCodes) {
         UnifiedParseResponse mrx = parseFile(mrxContent, null);
         List<String> lines = new ArrayList<>();
         String date = timestamp.substring(0, 8);
@@ -386,7 +418,6 @@ public class UnifiedParserService {
         headerLine.append("H");
         FileLayout.FieldDefinition senderField = ackHeaderFields.get("Sender Value");
         FileLayout.FieldDefinition receiverField = ackHeaderFields.get("Receiver Value");
-        FileLayout.FieldDefinition creationDateField = ackHeaderFields.get("Creation Date");
         FileLayout.FieldDefinition originalFileNameField = ackHeaderFields.get("Original File Name");
 
         headerLine.append(pad("PRIME", senderField != null ? senderField.getLength() : 25, ' ', true));
@@ -405,9 +436,39 @@ public class UnifiedParserService {
         FileLayout.FieldDefinition provNpiField = ackDataFields.get("Prov NPI");
         FileLayout.FieldDefinition provTinField = ackDataFields.get("Prov Tax ID");
         FileLayout.FieldDefinition statusField = ackDataFields.get("Status");
+        FileLayout.FieldDefinition rejectIdField = ackDataFields.get("Reject ID");
+        FileLayout.FieldDefinition rejectReasonField = ackDataFields.get("Reject Reason");
+
+        // Prepare rejection list if requested
+        List<ParsedLineDTO> dataLines = mrx.getLines().stream()
+                .filter(l -> "Data".equals(l.getType()))
+                .collect(java.util.stream.Collectors.toList());
+
+        Set<Integer> targetIdxs = new HashSet<>();
+        if (rejectPercentage > 0 || rejectCount > 0) {
+            List<Integer> availableIdxs = new ArrayList<>();
+            for (int i = 0; i < dataLines.size(); i++) {
+                availableIdxs.add(i);
+            }
+            java.util.Collections.shuffle(availableIdxs);
+
+            int targetCount = rejectCount > 0 ? Math.min(rejectCount, dataLines.size())
+                    : (int) Math.round((rejectPercentage / 100.0) * dataLines.size());
+
+            for (int i = 0; i < Math.min(targetCount, availableIdxs.size()); i++) {
+                targetIdxs.add(availableIdxs.get(i));
+            }
+        }
+
+        List<Map<String, String>> availableRejectCodes = ackLayout != null ? ackLayout.getDenialCodes()
+                : new ArrayList<>();
+        Random random = new Random();
 
         // Data
-        mrx.getLines().stream().filter(l -> "Data".equals(l.getType())).forEach(l -> {
+        for (int i = 0; i < dataLines.size(); i++) {
+            ParsedLineDTO l = dataLines.get(i);
+            boolean shouldReject = targetIdxs.contains(i);
+
             StringBuilder dataLine = new StringBuilder();
             dataLine.append("D");
             dataLine.append(pad(getFieldValue(l, "Sender Claim Number"),
@@ -424,15 +485,35 @@ public class UnifiedParserService {
                     provNpiField != null ? provNpiField.getLength() : 12, ' ', true));
             dataLine.append(pad(getFieldValue(l, "Provider Tax ID Number"),
                     provTinField != null ? provTinField.getLength() : 10, ' ', true));
-            // Fill up to Status field position with spaces, then add 'A'
+
+            // Status Field
             int currentLen = dataLine.length();
             int statusStart = statusField != null ? statusField.getStart() : 133;
             if (currentLen < statusStart - 1) {
                 dataLine.append(" ".repeat(statusStart - 1 - currentLen));
             }
-            dataLine.append("A");
+
+            if (shouldReject) {
+                dataLine.append("R");
+                // Reject ID and Reason
+                Map<String, String> rejectCode = null;
+                if (randomizeRejectCodes && !availableRejectCodes.isEmpty()) {
+                    rejectCode = availableRejectCodes.get(random.nextInt(availableRejectCodes.size()));
+                }
+
+                String rId = rejectCode != null ? rejectCode.get("code") : "EDI3108";
+                String rReason = rejectCode != null ? rejectCode.get("short")
+                        : "Reject to client - Client's Claim Number Not on File";
+
+                dataLine.append(pad(rId, rejectIdField != null ? rejectIdField.getLength() : 7, ' ', true));
+                dataLine.append(
+                        pad(rReason, rejectReasonField != null ? rejectReasonField.getLength() : 80, ' ', true));
+            } else {
+                dataLine.append("A");
+            }
+
             lines.add(pad(dataLine.toString(), ackLineLength, ' ', true));
-        });
+        }
 
         // Trailer - get trailer field definitions
         Map<String, FileLayout.FieldDefinition> ackTrailerFields = ackLayout != null && ackLayout.getTrailer() != null
@@ -453,7 +534,24 @@ public class UnifiedParserService {
         return String.join("\n", lines);
     }
 
+    /** No-modification overload — all claims default to PD */
     public String convertMrxToResp(String mrxContent, String timestamp) {
+        return convertMrxToResp(mrxContent, timestamp, 0, 0, "", 0, 0, 50, false);
+    }
+
+    /**
+     * Convert MRX → RESP with optional deny/partial modifications.
+     *
+     * @param denyPercentage         0-100: % of eligible claims to deny
+     * @param denialCode             denial code string (e.g. "GI")
+     * @param partialPercentage      0-100: % of remaining eligible claims to
+     *                               partial
+     * @param partialApprovedPercent 0-100: % of units to approve for partial claims
+     */
+    public String convertMrxToResp(String mrxContent, String timestamp,
+            int denyPercentage, int denyCount, String denialCode,
+            int partialPercentage, int partialCount, int partialApprovedPercent,
+            boolean randomizeDenialCodes) {
         UnifiedParseResponse mrx = parseFile(mrxContent, null);
         List<String> lines = new ArrayList<>();
         String date = timestamp.substring(0, 8);
@@ -477,9 +575,6 @@ public class UnifiedParserService {
         // Build header using layout field lengths
         FileLayout.FieldDefinition primeField = respHeaderFields.get("'PRIME' Alpha");
         FileLayout.FieldDefinition receiverIdField = respHeaderFields.get("Receiver ID");
-        FileLayout.FieldDefinition creationDateField = respHeaderFields.get("Creation Date");
-        FileLayout.FieldDefinition fromDateField = respHeaderFields.get("Selection From Date");
-        FileLayout.FieldDefinition toDateField = respHeaderFields.get("Selection To Date");
 
         StringBuilder headerLine = new StringBuilder();
         headerLine.append("H");
@@ -504,7 +599,41 @@ public class UnifiedParserService {
         FileLayout.FieldDefinition unitsDeniedField = respDataFields.get("Units Denied");
         FileLayout.FieldDefinition statusField = respDataFields.get("MRx Claim Status");
 
-        mrx.getLines().stream().filter(l -> "Data".equals(l.getType())).forEach(l -> {
+        // Build list of data lines and determine which are eligible for deny/partial
+        // (claims with Units/Quantity == 1 can NEVER be denied or set to partial)
+        List<ParsedLineDTO> dataLines = mrx.getLines().stream()
+                .filter(l -> "Data".equals(l.getType())).toList();
+
+        // Identify eligible indices (units > 1)
+        List<Integer> eligibleIdx = new ArrayList<>();
+        for (int i = 0; i < dataLines.size(); i++) {
+            String units = getFieldValue(dataLines.get(i), "Units/Quantity").trim();
+            int unitCount = 0;
+            try {
+                unitCount = Integer.parseInt(units);
+            } catch (NumberFormatException ignored) {
+            }
+            if (unitCount > 1)
+                eligibleIdx.add(i);
+        }
+
+        // Shuffle eligible indices for random selection
+        List<Integer> shuffled = new ArrayList<>(eligibleIdx);
+        java.util.Collections.shuffle(shuffled);
+
+        // Compute counts — count overrides percentage if specified
+        int finalDenyCount = denyCount > 0 ? denyCount : (int) Math.round(shuffled.size() * denyPercentage / 100.0);
+        Set<Integer> denySet = new java.util.HashSet<>(shuffled.subList(0, Math.min(finalDenyCount, shuffled.size())));
+
+        List<Integer> remaining = shuffled.subList(Math.min(finalDenyCount, shuffled.size()), shuffled.size());
+        int finalPartialCount = partialCount > 0 ? partialCount
+                : (int) Math.round(remaining.size() * partialPercentage / 100.0);
+        Set<Integer> partialSet = new java.util.HashSet<>(
+                remaining.subList(0, Math.min(finalPartialCount, remaining.size())));
+
+        Random rng = new Random();
+        for (int i = 0; i < dataLines.size(); i++) {
+            ParsedLineDTO l = dataLines.get(i);
             StringBuilder dataLine = new StringBuilder();
             dataLine.append("D");
             dataLine.append(pad(getFieldValue(l, "Sender Claim Number"),
@@ -519,17 +648,64 @@ public class UnifiedParserService {
                     provNpiField != null ? provNpiField.getLength() : 12, ' ', true));
             dataLine.append(pad(getFieldValue(l, "Provider Tax ID Number"),
                     provTinField != null ? provTinField.getLength() : 9, ' ', true));
-            dataLine.append(pad("PAYCODE" + (new Random().nextInt(90000) + 10000),
+            dataLine.append(pad("PAYCODE" + (rng.nextInt(90000) + 10000),
                     mrxClaimNumField != null ? mrxClaimNumField.getLength() : 12, ' ', true));
             dataLine.append(padNum("1", mrxClaimLineField != null ? mrxClaimLineField.getLength() : 3));
+
+            String rawUnits = getFieldValue(l, "Units/Quantity").trim();
+            int totalUnits = 0;
+            try {
+                totalUnits = Integer.parseInt(rawUnits);
+            } catch (NumberFormatException ignored) {
+            }
+
+            String claimStatus;
+            int approved;
+            int denied;
+
+            if (denySet.contains(i)) {
+                // DENY: all units denied
+                claimStatus = "DY";
+                approved = 0;
+                denied = totalUnits;
+            } else if (partialSet.contains(i)) {
+                // PARTIAL: split units per user-specified ratio
+                approved = Math.max(1, (int) Math.round(totalUnits * partialApprovedPercent / 100.0));
+                denied = totalUnits - approved;
+                claimStatus = "PA";
+            } else {
+                // PAID: all units approved
+                claimStatus = "PD";
+                approved = totalUnits;
+                denied = 0;
+            }
+
             dataLine.append(padNum(getFieldValue(l, "Allowed Amount"),
                     allowedAmountField != null ? allowedAmountField.getLength() : 9));
-            dataLine.append(padNum(getFieldValue(l, "Units/Quantity"),
+            dataLine.append(padNum(String.valueOf(approved),
                     unitsApprovedField != null ? unitsApprovedField.getLength() : 9));
-            dataLine.append(padNum("0", unitsDeniedField != null ? unitsDeniedField.getLength() : 9));
-            dataLine.append(pad("PD", statusField != null ? statusField.getLength() : 2, ' ', true));
+            dataLine.append(padNum(String.valueOf(denied),
+                    unitsDeniedField != null ? unitsDeniedField.getLength() : 9));
+            dataLine.append(pad(claimStatus, statusField != null ? statusField.getLength() : 2, ' ', true));
+
+            // Add denial code field if applicable
+            FileLayout.FieldDefinition denialCodeField = respDataFields.get("Denial Code");
+            String actualDenialCode = denialCode;
+            if (randomizeDenialCodes && respLayout != null && respLayout.getDenialCodes() != null
+                    && !respLayout.getDenialCodes().isEmpty()) {
+                List<Map<String, String>> codes = respLayout.getDenialCodes();
+                actualDenialCode = codes.get(rng.nextInt(codes.size())).get("code");
+            }
+
+            if ("DY".equals(claimStatus) || "PA".equals(claimStatus)) {
+                dataLine.append(pad(actualDenialCode != null ? actualDenialCode : "",
+                        denialCodeField != null ? denialCodeField.getLength() : 10, ' ', true));
+            } else {
+                dataLine.append(pad("", denialCodeField != null ? denialCodeField.getLength() : 10, ' ', true));
+            }
+
             lines.add(pad(dataLine.toString(), respLineLength, ' ', true));
-        });
+        }
 
         // Trailer - get trailer field definitions
         Map<String, FileLayout.FieldDefinition> respTrailerFields = respLayout != null
@@ -568,45 +744,40 @@ public class UnifiedParserService {
         if (content == null || content.isEmpty())
             return "INVALID";
 
-        // 1. Filename-based priority detection
-        if (hint != null) {
-            String upperHint = hint.toUpperCase();
-            if (upperHint.contains("MRX"))
-                return "MRX";
-            if (upperHint.contains("RESP"))
-                return "RESP";
-            if (upperHint.contains("ACK"))
-                return "ACK";
-        }
-
-        // 2. ⚡ PERFORMANCE OPTIMIZATION: Avoid split() for schema detection.
-        // Uses indexOf to find the first line ending and checks length directly.
+        // ⚡ Fast first-line length check using indexOf (no split needed)
         int firstLineEnd = content.indexOf('\n');
         if (firstLineEnd == -1)
             firstLineEnd = content.length();
         int firstLineLen = firstLineEnd > 0 && content.charAt(firstLineEnd - 1) == '\r' ? firstLineEnd - 1
                 : firstLineEnd;
 
-        if (firstLineLen >= 900) {
-            // Stronger MRX verification: Check for 'H' and 'BCBSMN'
-            if (content.startsWith("H") && content.length() > 26 && content.substring(1, 26).trim().equals("BCBSMN")) {
-                return "MRX";
-            }
-            // Fallback: If hint says MRX and it's wide, we take it
-            if (hint != null && hint.toUpperCase().contains("MRX")) {
-                return "MRX";
-            }
-            // New fallback: If it's the exact MRX length, assume it's a "mistaken" MRX file
-            // to allow structural validation to report specific errors.
-            if (firstLineLen == 921) {
-                return "MRX";
-            }
+        // All three schemas require CONTENT signatures — filename is NEVER used for
+        // routing.
+        // This prevents spoofing by renaming a file or editing a few characters.
+
+        // 1. MRX — exactly 921 chars, starts with 'H', cols 2–26 = 'BCBSMN'
+        if (firstLineLen >= 900
+                && content.startsWith("H")
+                && content.length() > 26
+                && content.substring(1, 26).trim().equals("BCBSMN")) {
+            return "MRX";
         }
 
-        if (firstLineLen >= 230)
+        // 2. RESP — exactly 230 chars, starts with 'H', cols 2–6 = 'PRIME'
+        if (firstLineLen == 230
+                && content.startsWith("H")
+                && content.length() > 6
+                && content.substring(1, 6).trim().equals("PRIME")) {
             return "RESP";
-        if (firstLineLen >= 220)
+        }
+
+        // 3. ACK — exactly 220 chars, starts with 'H', cols 2–26 = 'PRIME'
+        if (firstLineLen == 220
+                && content.startsWith("H")
+                && content.length() > 26
+                && content.substring(1, 26).trim().equals("PRIME")) {
             return "ACK";
+        }
 
         return "INVALID";
     }

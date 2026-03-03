@@ -4,11 +4,13 @@ import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { VirtuosoHandle } from 'react-virtuoso';
 import { parseFileOnBackend, parseTextOnBackend, ApiError, checkHealth, validateStatusChange, validatePartialUnits } from '@/lib/api';
 import { Button } from '@/components/ui/button';
-import { Check, Activity, AlertTriangle, ShieldAlert, Copy, Download, X, WifiOff, ArrowRight, Zap } from 'lucide-react';
+import { Check, Activity, AlertTriangle, ShieldAlert, Copy, Download, X, WifiOff, ArrowRight, Zap, Shuffle, ChevronDown, Undo2 } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { ParseResult, ParsedLine, FieldDefinition, ParsedField } from '@/lib/types';
-import { ACK_DENIAL_CODES } from '@/lib/constants';
+import { ACK_DENIAL_CODES, RESP_DENIAL_CODES } from '@/lib/constants';
 import { format } from 'date-fns';
 import { toast } from 'sonner';
+import { cn } from '@/lib/utils';
 
 // Extracted Components
 import { StatBox } from './visualizer/stat-box';
@@ -78,6 +80,16 @@ export function AckVisualizer({ onSwitchToMrxForge, pendingContent, onPendingCon
     const [isSidebarOpen, setIsSidebarOpen] = useState(true);
     const [schema, setSchema] = useState<'ACK' | 'RESP'>('ACK');
     const [isDragging, setIsDragging] = useState(false);
+
+    // Bulk action panel state
+    const [bulkPanel, setBulkPanel] = useState<{ open: boolean; mode: 'DY' | 'PA' | 'RJ' }>({
+        open: false, mode: 'DY'
+    });
+    const [bulkPct, setBulkPct] = useState('30');
+    const [bulkInputMode, setBulkInputMode] = useState<'PCT' | 'CNT'>('PCT');
+    const [bulkCount, setBulkCount] = useState('10');
+    const [randomizeDenyCodes, setRandomizeDenyCodes] = useState(true);
+    const [bulkDenialCode, setBulkDenialCode] = useState('GI');
     const [editingField, setEditingField] = useState<{ lineIdx: number, fieldIdx: number, value: string } | null>(null);
     const [mrxDetected, setMrxDetected] = useState(false);
     const [mrxFile, setMrxFile] = useState<File | null>(null);
@@ -91,9 +103,54 @@ export function AckVisualizer({ onSwitchToMrxForge, pendingContent, onPendingCon
     const [error, setError] = useState<string | null>(null);
     const [, setIsReconnecting] = useState(false);
 
-    // Ref to track latest result for use in stable callbacks without re-creating them
+    // History for Undo
+    const [history, setHistory] = useState<{ result: ParseResult; content: string }[]>([]);
+
+    // Ref to track latest result/content for use in stable callbacks without re-creating them
     const resultRef = useRef<ParseResult>(emptyResult);
+    const contentRef = useRef<string>('');
     useEffect(() => { resultRef.current = result; }, [result]);
+    useEffect(() => { contentRef.current = content; }, [content]);
+
+    const recordHistory = useCallback(() => {
+        setHistory(prev => [{ result: resultRef.current, content: contentRef.current }, ...prev].slice(0, 50));
+    }, []);
+
+    const handleUndo = useCallback(() => {
+        let stateToRestore: { result: ParseResult; content: string } | null = null;
+        
+        setHistory(prev => {
+            if (prev.length === 0) return prev;
+            const [lastState, ...remaining] = prev;
+            stateToRestore = lastState;
+            return remaining;
+        });
+
+        if (stateToRestore) {
+            const { result: r, content: c } = stateToRestore;
+            setResult(r);
+            setContent(c);
+            
+            toast.info('Action Undone', {
+                description: 'The previous state has been restored.',
+                duration: 2000,
+                id: 'undo-toast'
+            });
+        }
+    }, []);
+
+    // Keyboard shortcut for Undo (Ctrl+Z)
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+                if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+                e.preventDefault();
+                handleUndo();
+            }
+        };
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [handleUndo]);
 
     // Self-Healing Logic: Polling backend status when in error state
     useEffect(() => {
@@ -151,6 +208,7 @@ export function AckVisualizer({ onSwitchToMrxForge, pendingContent, onPendingCon
 
                 setContent(backendResponse.rawContent);
                 setResult({ lines: parsedLines, summary: backendResponse.summary });
+                setHistory([]); // Reset history on new content
             } catch (err: unknown) {
                 const message = err instanceof Error ? err.message : 'Unknown error';
                 setError(`Failed to load converted content: ${message}`);
@@ -166,6 +224,9 @@ export function AckVisualizer({ onSwitchToMrxForge, pendingContent, onPendingCon
 
     const handleFieldUpdate = useCallback((lineIdx: number, fieldDef: FieldDefinition, newValue: string) => {
         const trimmedNewValue = newValue.trim();
+        if (resultRef.current.lines[lineIdx]?.fields.find(f => f.def.name === fieldDef.name)?.value === newValue) return;
+
+        recordHistory();
 
         // Calculate the visual row number (only counting Data rows, matching grid display)
         const displayRow = resultRef.current.lines
@@ -475,6 +536,7 @@ export function AckVisualizer({ onSwitchToMrxForge, pendingContent, onPendingCon
                     setContent(backendResponse.rawContent);
                     // Set the backend parsed result directly
                     setResult(parsedResult);
+                    setHistory([]); // Reset history on new file load
                     setTimeout(() => {
                         setIsLoading(false);
                         setActivePhase('IDLE');
@@ -504,6 +566,7 @@ export function AckVisualizer({ onSwitchToMrxForge, pendingContent, onPendingCon
         setActivePhase('IDLE');
         setMrxDetected(false);
         setMrxFile(null);
+        setHistory([]);
     };
     const handleCopy = () => { navigator.clipboard.writeText(content); };
 
@@ -523,6 +586,140 @@ export function AckVisualizer({ onSwitchToMrxForge, pendingContent, onPendingCon
         const downloadName = fileName || `${schema}_EXPORT_${format(new Date(), 'yyyyMMddHHmmss')}.txt`;
         if (content) downloadString(content, downloadName);
     };
+
+    /** Apply RANDOM DENY/PARTIAL (RESP) or RANDOM REJECT (ACK) to eligible data lines. */
+    const applyBulkAction = useCallback(() => {
+        if (schema !== 'RESP' && schema !== 'ACK') return;
+        const pct = Math.max(1, Math.min(100, parseInt(bulkPct) || 30));
+        const cnt = parseInt(bulkCount) || 0;
+        const mode = bulkPanel.mode;
+
+        // Collect eligible line indices
+        const eligibleIdxs: number[] = [];
+        result.lines.forEach((line, idx) => {
+            if (line.type !== 'Data') return;
+
+            if (schema === 'RESP') {
+                const apprField = line.fields.find(f => f.def.name === 'Units approved');
+                const apprUnits = parseInt(apprField?.value.trim() || '0') || 0;
+                // For RESP, eligible if Units Approved > 1 (cannot deny/partial a single-unit claim)
+                if (apprUnits > 1) eligibleIdxs.push(idx);
+            } else if (schema === 'ACK') {
+                // For ACK, any data claim can be rejected regardless of current status
+                eligibleIdxs.push(idx);
+            }
+        });
+
+        if (eligibleIdxs.length === 0) {
+            toast.warning('No eligible lines', {
+                description: schema === 'RESP'
+                    ? 'All data lines have Units Approved ≤ 1 — cannot apply Deny or Partial.'
+                    : 'All data lines are already Accepted or Rejected — cannot apply further rejections.'
+            });
+            return;
+        }
+
+        // Randomly shuffle and pick the requested amount
+        const shuffled = [...eligibleIdxs].sort(() => Math.random() - 0.5);
+        const targetCount = bulkInputMode === 'CNT'
+            ? Math.min(cnt, shuffled.length)
+            : Math.max(1, Math.round((pct / 100) * shuffled.length));
+
+        if (targetCount === 0) return;
+        const targetIdxs = new Set(shuffled.slice(0, targetCount));
+
+        recordHistory();
+
+        setResult(prev => {
+            const newLines = prev.lines.map((line, idx) => {
+                if (!targetIdxs.has(idx)) return line;
+
+                const fields = [...line.fields];
+
+                const updateField = (name: string, val: string) => {
+                    const i = fields.findIndex(f => f.def.name === name);
+                    if (i === -1) return;
+                    const def = fields[i].def;
+                    const padded = def.type === 'Numeric'
+                        ? val.trim().padStart(def.length, '0').slice(0, def.length)
+                        : val.trim().padEnd(def.length, ' ').slice(0, def.length);
+                    fields[i] = { ...fields[i], value: padded };
+                };
+
+                if (schema === 'RESP') {
+                    const totalUnits = (parseInt(fields.find(f => f.def.name === 'Units approved')?.value.trim() || '0') || 0)
+                        + (parseInt(fields.find(f => f.def.name === 'Units Denied')?.value.trim() || '0') || 0);
+
+                    const getActualCode = () => {
+                        if (!randomizeDenyCodes) return bulkDenialCode;
+                        return RESP_DENIAL_CODES[Math.floor(Math.random() * RESP_DENIAL_CODES.length)].code;
+                    };
+
+                    if (mode === 'DY') {
+                        updateField('MRx Claim Status', 'DY');
+                        updateField('Units approved', '0');
+                        updateField('Units Denied', totalUnits.toString());
+                        updateField('Denial Code', getActualCode());
+                    } else { // PA
+                        const denied = Math.max(1, Math.min(totalUnits - 1, Math.round(totalUnits * 0.3)));
+                        const approved = totalUnits - denied;
+                        updateField('MRx Claim Status', 'PA');
+                        updateField('Units approved', approved.toString());
+                        updateField('Units Denied', denied.toString());
+                        updateField('Denial Code', getActualCode());
+                    }
+                } else if (schema === 'ACK') {
+                    // For ACK, the mode is always 'R' (Reject)
+                    const getActualCode = () => {
+                        if (!randomizeDenyCodes) return bulkDenialCode;
+                        return ACK_DENIAL_CODES[Math.floor(Math.random() * ACK_DENIAL_CODES.length)].code;
+                    };
+                    updateField('Status', 'R');
+                    updateField('Rejection Code', getActualCode());
+                }
+
+                return { ...line, fields };
+            });
+
+            // Update RAW content string as well
+            setContent(prev => {
+                const lines = prev.split('\n');
+                newLines.forEach((l, idx) => {
+                    if (!targetIdxs.has(idx)) return;
+                    let lineStr = lines[idx];
+                    if (!lineStr) return;
+
+                    l.fields.forEach(f => {
+                        lineStr = lineStr.substring(0, f.def.start - 1) + f.value + lineStr.substring(f.def.end);
+                    });
+                    lines[idx] = lineStr;
+                });
+                return lines.join('\n');
+            });
+
+            // Recompute summary
+            let accepted = 0; let rejected = 0;
+            newLines.forEach(l => {
+                if (l.type !== 'Data') return;
+                const s = l.fields.find(f => f.def.name === (schema === 'RESP' ? 'MRx Claim Status' : 'Status'))?.value.trim() || '';
+                if (schema === 'RESP') {
+                    if (['PD', 'PA'].includes(s)) accepted++;
+                    else if (s === 'DY') rejected++;
+                } else {
+                    if (s === 'A') accepted++;
+                    else if (s === 'R') rejected++;
+                }
+            });
+
+            return { ...prev, lines: newLines, summary: { ...prev.summary, accepted, rejected } };
+        });
+
+        const actionName = mode === 'RJ' ? 'Reject' : (mode === 'DY' ? 'Deny' : 'Partial');
+        toast.success(`Bulk ${actionName} applied`, {
+            description: `${targetCount} claims updated ${bulkInputMode === 'PCT' ? `(${pct}%)` : ''}.`
+        });
+        setBulkPanel(p => ({ ...p, open: false }));
+    }, [schema, bulkPct, bulkInputMode, bulkCount, randomizeDenyCodes, bulkPanel.mode, bulkDenialCode, result.lines]);
 
 
     return (
@@ -545,6 +742,131 @@ export function AckVisualizer({ onSwitchToMrxForge, pendingContent, onPendingCon
             />
 
             <main className="flex-1 flex flex-col min-w-0 bg-background relative min-h-0">
+                {/* Bulk Action Config Panel */}
+                {bulkPanel.open && (
+                    <div className="absolute top-24 left-0 right-0 z-30 bg-background/95 backdrop-blur-md border-b border-border shadow-2xl animate-in slide-in-from-top-4 duration-300">
+                        <div className="max-w-4xl mx-auto p-6 flex flex-col md:flex-row items-end gap-6">
+                            <div className="flex-1 space-y-3 w-full">
+                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-2">
+                                    <div className="flex items-center gap-2">
+                                        <div className={`p-1.5 rounded-md ${bulkPanel.mode === 'DY' ? 'bg-rose-500/10 text-rose-500' : 'bg-amber-500/10 text-amber-500'}`}>
+                                            <Shuffle className="w-4 h-4" />
+                                        </div>
+                                        <span className="text-[10px] font-black uppercase tracking-widest text-primary shrink-0">
+                                        {bulkPanel.mode === 'DY' ? 'Bulk Deny Modification' : 
+                                         bulkPanel.mode === 'PA' ? 'Bulk Partial Modification' : 
+                                         'Bulk Reject Modification (ACK)'}
+                                    </span>
+                                    </div>
+                                    <div className="flex items-center gap-4">
+                                        <div className="flex bg-muted/40 p-0.5 rounded-md border border-border/10">
+                                            <Button 
+                                                variant={bulkInputMode === 'PCT' ? 'secondary' : 'ghost'} 
+                                                size="sm" 
+                                                className="h-6 text-[9px] px-2 font-black uppercase tracking-tighter"
+                                                onClick={() => setBulkInputMode('PCT')}
+                                            >%</Button>
+                                            <Button 
+                                                variant={bulkInputMode === 'CNT' ? 'secondary' : 'ghost'} 
+                                                size="sm" 
+                                                className="h-6 text-[9px] px-2 font-black uppercase tracking-tighter"
+                                                onClick={() => setBulkInputMode('CNT')}
+                                            >#</Button>
+                                        </div>
+                                        <label className="flex items-center gap-2 cursor-pointer group select-none">
+                                            <input 
+                                                type="checkbox" 
+                                                checked={randomizeDenyCodes} 
+                                                onChange={e => setRandomizeDenyCodes(e.target.checked)}
+                                                className="w-3 h-3 rounded-sm border-border bg-transparent text-primary focus:ring-0"
+                                            />
+                                            <span className="text-[9px] text-muted-foreground uppercase tracking-widest font-black group-hover:text-foreground transition-colors">Random Codes</span>
+                                        </label>
+                                    </div>
+                                </div>
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                    <div className="space-y-1.5">
+                                        <label className="text-[10px] text-muted-foreground uppercase tracking-wider font-bold">Denial Reason Code</label>
+                                        <Select 
+                                            value={randomizeDenyCodes ? 'RANDOM' : bulkDenialCode} 
+                                            onValueChange={setBulkDenialCode}
+                                            disabled={randomizeDenyCodes}
+                                        >
+                                            <SelectTrigger className="h-10 bg-muted/20 border-border/50 font-bold text-xs w-full disabled:opacity-50">
+                                                <SelectValue placeholder={randomizeDenyCodes ? "Randomly Assigned" : "Select Reason"} />
+                                            </SelectTrigger>
+                                            <SelectContent align="start" className="max-h-[300px]">
+                                                {(schema === 'RESP' ? RESP_DENIAL_CODES : ACK_DENIAL_CODES).map(c => (
+                                                    <SelectItem key={c.code} value={c.code} className="text-[11px]">
+                                                        <span className="font-black text-primary mr-2">{c.code}</span>
+                                                        <span className="opacity-70">{c.short}</span>
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+                                    <div className="space-y-1.5">
+                                        <div className="flex justify-between items-center">
+                                            <label className="text-[10px] text-muted-foreground uppercase tracking-wider font-bold">
+                                                {bulkInputMode === 'PCT' ? 'Impact Percentage' : 'Exact Claim Count'}
+                                            </label>
+                                            <span className="text-xs font-black text-primary bg-primary/10 px-2 py-0.5 rounded">
+                                                {bulkInputMode === 'PCT' ? `${bulkPct}%` : `${bulkCount} claims`}
+                                            </span>
+                                        </div>
+                                        {bulkInputMode === 'PCT' ? (
+                                            <div className="flex items-center gap-3 h-10 w-full px-1">
+                                                <span className="text-[10px] text-muted-foreground font-bold">1%</span>
+                                                <input
+                                                    type="range"
+                                                    min="1"
+                                                    max="100"
+                                                    step="1"
+                                                    value={bulkPct}
+                                                    onChange={(e) => setBulkPct(e.target.value)}
+                                                    className="flex-1 accent-primary h-1.5 bg-muted rounded-full appearance-none cursor-pointer"
+                                                />
+                                                <span className="text-[10px] text-muted-foreground font-bold">100%</span>
+                                            </div>
+                                        ) : (
+                                            <div className="flex items-center h-10 w-full relative">
+                                                <input
+                                                    type="number"
+                                                    value={bulkCount}
+                                                    onChange={(e) => setBulkCount(e.target.value)}
+                                                    className="w-full h-full bg-muted/20 border border-border/50 rounded-md px-3 font-bold text-xs focus:ring-1 focus:ring-primary outline-none"
+                                                    min="1"
+                                                />
+                                                <span className="absolute right-3 text-[10px] text-muted-foreground font-bold uppercase">Target</span>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="flex gap-2 w-full md:w-auto shrink-0 pb-1">
+                                <Button
+                                    variant="outline"
+                                    onClick={() => setBulkPanel(p => ({ ...p, open: false }))}
+                                    className="h-10 px-4 text-[10px] font-bold uppercase tracking-widest border-border/50 hover:bg-muted/50"
+                                >
+                                    Cancel
+                                </Button>
+                                <Button
+                                    onClick={applyBulkAction}
+                                    className={`h-10 px-8 text-[10px] font-bold uppercase tracking-widest shadow-lg transition-all ${
+                                        bulkPanel.mode === 'DY'
+                                            ? 'bg-rose-600 hover:bg-rose-500 shadow-rose-900/20'
+                                            : bulkPanel.mode === 'RJ'
+                                            ? 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-900/20'
+                                            : 'bg-amber-600 hover:bg-amber-500 shadow-amber-900/20'
+                                    }`}
+                                >
+                                    Execute Batch Action
+                                </Button>
+                            </div>
+                        </div>
+                    </div>
+                )}
                 <header className="h-24 border-b border-border flex bg-background shrink-0 divide-x divide-border">
                     <div className="flex shrink-0">
                         <StatBox label="Total Records" value={result.lines.filter(l => l.type === 'Data').length.toLocaleString()} icon={Activity} />
@@ -571,9 +893,74 @@ export function AckVisualizer({ onSwitchToMrxForge, pendingContent, onPendingCon
                     </div>
 
                     <div className="flex shrink-0 items-center px-4 gap-2 bg-muted/5">
-                        <Button variant="ghost" size="sm" className="h-9 w-9 p-0 hover:bg-primary/10 hover:text-primary transition-colors" onClick={handleCopy} disabled={!content} title="Copy to Clipboard">
-                            <Copy className="w-4 h-4" />
-                        </Button>
+                        {/* Bulk Action Buttons — RESP only */}
+                        {content && (
+                            <>
+                                {schema === 'RESP' ? (
+                                    <>
+                                        <button
+                                            onClick={() => setBulkPanel(p => ({ open: !p.open || p.mode !== 'DY', mode: 'DY' }))}
+                                            className={`h-9 px-3 flex items-center gap-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider border transition-all ${
+                                                bulkPanel.open && bulkPanel.mode === 'DY'
+                                                    ? 'bg-rose-500/20 border-rose-500/50 text-rose-400'
+                                                    : 'border-rose-500/20 text-rose-500/70 hover:bg-rose-500/10 hover:border-rose-500/40 hover:text-rose-400'
+                                            }`}
+                                            title="Apply random denials to eligible RESP lines"
+                                        >
+                                            <Shuffle className="w-3.5 h-3.5" />
+                                            Rnd Deny
+                                            <ChevronDown className="w-3 h-3" />
+                                        </button>
+                                        <button
+                                            onClick={() => setBulkPanel(p => ({ open: !p.open || p.mode !== 'PA', mode: 'PA' }))}
+                                            className={`h-9 px-3 flex items-center gap-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider border transition-all ${
+                                                bulkPanel.open && bulkPanel.mode === 'PA'
+                                                    ? 'bg-amber-500/20 border-amber-500/50 text-amber-400'
+                                                    : 'border-amber-500/20 text-amber-500/70 hover:bg-amber-500/10 hover:border-amber-500/40 hover:text-amber-400'
+                                            }`}
+                                            title="Apply random partial approvals to eligible RESP lines"
+                                        >
+                                            <Shuffle className="w-3.5 h-3.5" />
+                                            Rnd Partial
+                                            <ChevronDown className="w-3 h-3" />
+                                        </button>
+                                    </>
+                                ) : schema === 'ACK' ? (
+                                    <button
+                                        onClick={() => setBulkPanel(p => ({ open: !p.open || p.mode !== 'RJ', mode: 'RJ' }))}
+                                        className={`h-9 px-3 flex items-center gap-1.5 rounded-lg text-[10px] font-black uppercase tracking-wider border transition-all ${
+                                            bulkPanel.open && bulkPanel.mode === 'RJ'
+                                                ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-400'
+                                                : 'border-emerald-500/20 text-emerald-500/70 hover:bg-emerald-500/10 hover:border-emerald-500/40 hover:text-emerald-400'
+                                        }`}
+                                        title="Apply random rejections to eligible ACK lines"
+                                    >
+                                        <Shuffle className="w-3.5 h-3.5" />
+                                        Rnd Reject
+                                        <ChevronDown className="w-3 h-3" />
+                                    </button>
+                                ) : null}
+                            </>
+                        )}
+                            <div className="flex items-center gap-1">
+                                <Button
+                                    variant="ghost" 
+                                    size="sm" 
+                                    className={cn(
+                                        "h-9 px-3 text-[10px] font-bold uppercase tracking-wider gap-1.5 transition-all",
+                                        history.length > 0 ? "text-amber-500 hover:bg-amber-500/10" : "text-muted-foreground opacity-50 cursor-not-allowed"
+                                    )}
+                                    onClick={handleUndo}
+                                    disabled={history.length === 0}
+                                    title="Undo (Ctrl+Z)"
+                                >
+                                    <Undo2 className="w-3.5 h-3.5" />
+                                    Undo
+                                </Button>
+                                <Button variant="ghost" size="sm" className="h-9 w-9 p-0 hover:bg-primary/10 hover:text-primary transition-colors" onClick={handleCopy} disabled={!content} title="Copy to Clipboard">
+                                    <Copy className="w-4 h-4" />
+                                </Button>
+                            </div>
                         <Button variant="secondary" size="sm" className="h-10 gap-2 px-6 text-xs font-bold shadow-lg shadow-primary/10 hover:shadow-primary/20 transition-all border border-primary/20" onClick={handleDownload} disabled={!content}>
                             <Download className="w-4 h-4" /> DOWNLOAD
                         </Button>

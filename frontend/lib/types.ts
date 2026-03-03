@@ -26,6 +26,7 @@ export interface ParsedField {
     isValid: boolean;
     error?: string;
     valid?: boolean; // Legacy/Backend support
+    lengthError?: boolean; // Set by backend when value.length != def.length
 }
 
 export interface ParsedLine {

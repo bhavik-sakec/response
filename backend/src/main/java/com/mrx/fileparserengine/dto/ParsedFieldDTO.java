@@ -20,4 +20,9 @@ public class ParsedFieldDTO {
     @JsonProperty("isValid")
     private boolean isValid;
     private String error;
+    /**
+     * True when value.length() != def.length — field length does not match schema
+     * definition
+     */
+    private boolean lengthError;
 }
