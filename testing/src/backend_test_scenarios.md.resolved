@@ -1,0 +1,786 @@
+# 🧪 MAGELLAN-FORGE — Backend Test Scenarios
+
+**Status:** ⏳ Awaiting Approval  
+**Engine:** `MAGELLAN-FORGE-V1` | `http://localhost:8080/api`  
+**Scope:** All 7 REST endpoints across the [UnifiedParserController](file:///d:/Antigravity/AntiGravity_Kit/magellen-responce/backend/src/main/java/com/mrx/fileparserengine/controller/UnifiedParserController.java#22-371)
+
+---
+
+## 📋 Endpoints Under Test
+
+| #   | Method | Endpoint                   | Purpose                                        |
+| --- | ------ | -------------------------- | ---------------------------------------------- |
+| 1   | GET    | `/api/health`              | Health check                                   |
+| 2   | GET    | `/api/layouts`             | Fetch layout definitions                       |
+| 3   | POST   | `/api/parse`               | Parse file (multipart upload)                  |
+| 4   | POST   | `/api/parse-text`          | Parse raw text (body)                          |
+| 5   | POST   | `/api/convert/mrx-to-ack`  | Convert MRX → ACK                              |
+| 6   | POST   | `/api/convert/mrx-to-resp` | Convert MRX → RESP                             |
+| 7   | POST   | `/api/convert/mrx-to-csv`  | Convert MRX → CSV                              |
+| 8   | POST   | `/api/validate`            | Validate claim (STATUS_CHANGE / PARTIAL_UNITS) |
+
+---
+
+## 🗂️ Category 1: Smoke Tests
+
+> Quick sanity — API is alive and serving.
+
+### SC-01 · Health Check
+
+- **Endpoint:** `GET /api/health`
+- **Input:** None
+- **Expected:** `200 OK` · `{ "status": "UP", "engine": "MAGELLAN-FORGE-V1" }`
+- **Tags:** `smoke`
+
+### SC-02 · Layouts Available
+
+- **Endpoint:** `GET /api/layouts`
+- **Input:** None
+- **Expected:** `200 OK` · Response body contains keys: `MRX`, `ACK`, `RESP`
+- **Tags:** `smoke`
+
+---
+
+## 🗂️ Category 2: Functional (Happy Path) Tests
+
+> Core business flows with valid inputs.
+
+### FP-01 · Parse MRX File (Multipart)
+
+- **Endpoint:** `POST /api/parse`
+- **Input:** `multipart/form-data` · field `file` = valid MRX `.txt` file
+- **Expected:**
+  - `200 OK`
+  - `detectedSchema: "MRX"`
+  - `summary.total > 0`
+  - `summary.invalid == 0`
+  - `lines[0].type == "Header"`
+  - `lines[last].type == "Trailer"`
+  - `validationErrors` is `null` or empty
+- **Tags:** `functional`, [parse](file:///d:/Antigravity/AntiGravity_Kit/magellen-responce/backend/src/main/java/com/mrx/fileparserengine/controller/UnifiedParserController.java#116-146), `mrx`
+
+### FP-02 · Parse ACK File (Multipart)
+
+- **Endpoint:** `POST /api/parse`
+- **Input:** `multipart/form-data` · field `file` = valid ACK `.txt` file
+- **Expected:**
+  - `200 OK`
+  - `detectedSchema: "ACK"`
+  - `summary.total > 0`
+  - Has Header, Data, and Trailer lines
+- **Tags:** `functional`, [parse](file:///d:/Antigravity/AntiGravity_Kit/magellen-responce/backend/src/main/java/com/mrx/fileparserengine/controller/UnifiedParserController.java#116-146), `ack`
+
+### FP-03 · Parse RESP File (Multipart)
+
+- **Endpoint:** `POST /api/parse`
+- **Input:** `multipart/form-data` · field `file` = valid RESP `.txt` file
+- **Expected:**
+  - `200 OK`
+  - `detectedSchema: "RESP"`
+  - `summary.total > 0`
+- **Tags:** `functional`, [parse](file:///d:/Antigravity/AntiGravity_Kit/magellen-responce/backend/src/main/java/com/mrx/fileparserengine/controller/UnifiedParserController.java#116-146), `resp`
+
+### FP-04 · Parse MRX Text (Raw Body)
+
+- **Endpoint:** `POST /api/parse-text`
+- **Input:** `text/plain` body = content of valid MRX file
+- **Expected:**
+  - `200 OK`
+  - `detectedSchema: "MRX"`
+  - Same shape as FP-01
+- **Tags:** `functional`, `parse-text`, `mrx`
+
+### FP-05 · Parse ACK Text (Raw Body)
+
+- **Endpoint:** `POST /api/parse-text`
+- **Input:** `text/plain` body = content of valid ACK file
+- **Expected:**
+  - `200 OK`
+  - `detectedSchema: "ACK"`
+- **Tags:** `functional`, `parse-text`, `ack`
+
+### FP-06 · Parse RESP Text (Raw Body)
+
+- **Endpoint:** `POST /api/parse-text`
+- **Input:** `text/plain` body = content of valid RESP file
+- **Expected:**
+  - `200 OK`
+  - `detectedSchema: "RESP"`
+- **Tags:** `functional`, `parse-text`, `resp`
+
+### FP-07 · Convert MRX → ACK (All Accepted)
+
+- **Endpoint:** `POST /api/convert/mrx-to-ack`
+- **Input:** `multipart/form-data` · valid MRX file · no params
+- **Expected:**
+  - `200 OK`
+  - `{ "content": "...", "fileName": "TEST.MCMSMN_CLAIMS_ACK_*.txt" }`
+  - Generated ACK has 1 Header + N Data + 1 Trailer lines
+  - All Data lines have `Status = "A"`
+- **Tags:** `functional`, [convert](file:///d:/Antigravity/AntiGravity_Kit/magellen-responce/backend/src/main/java/com/mrx/fileparserengine/service/UnifiedParserService.java#861-873), `mrx-to-ack`
+
+### FP-08 · Convert MRX → ACK (With Reject Percentage)
+
+- **Endpoint:** `POST /api/convert/mrx-to-ack`
+- **Input:** `multipart/form-data` · valid MRX file · `rejectPercentage=30`
+- **Expected:**
+  - `200 OK`
+  - ~30% of Data lines have `Status = "R"` with `Reject ID` and `Reject Reason`
+  - Remaining lines have `Status = "A"`
+- **Tags:** `functional`, [convert](file:///d:/Antigravity/AntiGravity_Kit/magellen-responce/backend/src/main/java/com/mrx/fileparserengine/service/UnifiedParserService.java#861-873), `reject-percentage`
+
+### FP-09 · Convert MRX → ACK (With Reject Count)
+
+- **Endpoint:** `POST /api/convert/mrx-to-ack`
+- **Input:** `multipart/form-data` · valid MRX file · `rejectCount=5`
+- **Expected:**
+  - `200 OK`
+  - Exactly 5 Data lines have `Status = "R"`
+- **Tags:** `functional`, [convert](file:///d:/Antigravity/AntiGravity_Kit/magellen-responce/backend/src/main/java/com/mrx/fileparserengine/service/UnifiedParserService.java#861-873), `reject-count`
+
+### FP-10 · Convert MRX → ACK (Randomize Reject Codes)
+
+- **Endpoint:** `POST /api/convert/mrx-to-ack`
+- **Input:** `multipart/form-data` · valid MRX file · `rejectPercentage=50` · `randomizeRejectCodes=true`
+- **Expected:**
+  - `200 OK`
+  - Rejected lines have varied `Reject ID` values (not all `EDI3108`)
+- **Tags:** `functional`, [convert](file:///d:/Antigravity/AntiGravity_Kit/magellen-responce/backend/src/main/java/com/mrx/fileparserengine/service/UnifiedParserService.java#861-873), `reject-codes`
+
+### FP-11 · Convert MRX → ACK (Custom Timestamp)
+
+- **Endpoint:** `POST /api/convert/mrx-to-ack`
+- **Input:** `multipart/form-data` · valid MRX · `timestamp=20260209202425`
+- **Expected:**
+  - `200 OK`
+  - `fileName` contains `20260209202425`
+- **Tags:** `functional`, [convert](file:///d:/Antigravity/AntiGravity_Kit/magellen-responce/backend/src/main/java/com/mrx/fileparserengine/service/UnifiedParserService.java#861-873), `timestamp`
+
+### FP-12 · Convert MRX → RESP (All Approved / PD)
+
+- **Endpoint:** `POST /api/convert/mrx-to-resp`
+- **Input:** `multipart/form-data` · valid MRX file · no params
+- **Expected:**
+  - `200 OK`
+  - All Data lines have `MRx Claim Status = "PD"`
+- **Tags:** `functional`, [convert](file:///d:/Antigravity/AntiGravity_Kit/magellen-responce/backend/src/main/java/com/mrx/fileparserengine/service/UnifiedParserService.java#861-873), `mrx-to-resp`
+
+### FP-13 · Convert MRX → RESP (With Deny Percentage)
+
+- **Endpoint:** `POST /api/convert/mrx-to-resp`
+- **Input:** `multipart/form-data` · valid MRX · `denyPercentage=40`
+- **Expected:**
+  - `200 OK`
+  - ~40% of eligible (units > 1) lines have `MRx Claim Status = "DY"`
+  - Claims with `Units/Quantity = 1` must NOT be denied
+- **Tags:** `functional`, [convert](file:///d:/Antigravity/AntiGravity_Kit/magellen-responce/backend/src/main/java/com/mrx/fileparserengine/service/UnifiedParserService.java#861-873), `deny-percentage`
+
+### FP-14 · Convert MRX → RESP (With Partial Percentage)
+
+- **Endpoint:** `POST /api/convert/mrx-to-resp`
+- **Input:** `multipart/form-data` · valid MRX · `partialPercentage=30`
+- **Expected:**
+  - `200 OK`
+  - ~30% of eligible lines have `MRx Claim Status = "PA"`
+  - PA lines: `Units approved > 0` AND `Units Denied > 0` AND `Units approved > Units Denied`
+- **Tags:** `functional`, [convert](file:///d:/Antigravity/AntiGravity_Kit/magellen-responce/backend/src/main/java/com/mrx/fileparserengine/service/UnifiedParserService.java#861-873), `partial-percentage`
+
+### FP-15 · Convert MRX → RESP (Combined Deny + Partial)
+
+- **Endpoint:** `POST /api/convert/mrx-to-resp`
+- **Input:** `multipart/form-data` · `denyPercentage=20` · `partialPercentage=30`
+- **Expected:**
+  - `200 OK`
+  - Deny set and partial set are **mutually exclusive** (no claim in both)
+  - Remaining claims are `PD`
+- **Tags:** `functional`, [convert](file:///d:/Antigravity/AntiGravity_Kit/magellen-responce/backend/src/main/java/com/mrx/fileparserengine/service/UnifiedParserService.java#861-873), `combined-scenario`
+
+### FP-16 · Convert MRX → CSV
+
+- **Endpoint:** `POST /api/convert/mrx-to-csv`
+- **Input:** `multipart/form-data` · valid MRX file
+- **Expected:**
+  - `200 OK`
+  - `{ "content": "...", "fileName": "TEST.MCMSMN_CLAIMS_EXPORT_*.csv" }`
+  - Content starts with a CSV header row
+  - Row count equals MRX data line count
+- **Tags:** `functional`, [convert](file:///d:/Antigravity/AntiGravity_Kit/magellen-responce/backend/src/main/java/com/mrx/fileparserengine/service/UnifiedParserService.java#861-873), `mrx-to-csv`
+
+---
+
+## 🗂️ Category 3: Validation Endpoint Tests
+
+> Business logic for status changes and unit splits.
+
+### VL-01 · STATUS_CHANGE — Valid PD
+
+- **Endpoint:** `POST /api/validate`
+- **Input:** `{ "type": "STATUS_CHANGE", "unitsApproved": 5, "totalUnits": 10, "newStatus": "PD" }`
+- **Expected:**
+  - `200 OK`
+  - `isValid: true`
+  - `suggestedApproved: 10, suggestedDenied: 0`
+- **Tags:** `validation`, `status-change`
+
+### VL-02 · STATUS_CHANGE — Valid DY (has approved units)
+
+- **Endpoint:** `POST /api/validate`
+- **Input:** `{ "type": "STATUS_CHANGE", "unitsApproved": 5, "totalUnits": 10, "newStatus": "DY" }`
+- **Expected:**
+  - `200 OK`
+  - `isValid: true`
+  - `suggestedApproved: 0, suggestedDenied: 10`
+- **Tags:** `validation`, `status-change`
+
+### VL-03 · STATUS_CHANGE — Blocked DY (0 approved = redundant deny)
+
+- **Endpoint:** `POST /api/validate`
+- **Input:** `{ "type": "STATUS_CHANGE", "unitsApproved": 0, "totalUnits": 10, "newStatus": "DY" }`
+- **Expected:**
+  - `200 OK` (validation returns result, not HTTP error)
+  - `isValid: false`
+  - `error` contains "Cannot change status to Denied when approved units are 0"
+  - `allowedStatuses: ["PD", "PA"]`
+- **Tags:** `validation`, `status-change`, `blocked`
+
+### VL-04 · STATUS_CHANGE — Blocked PA (only 1 unit = can't split)
+
+- **Endpoint:** `POST /api/validate`
+- **Input:** `{ "type": "STATUS_CHANGE", "unitsApproved": 1, "totalUnits": 1, "newStatus": "PA" }`
+- **Expected:**
+  - `200 OK`
+  - `isValid: false`
+  - `error` contains "need at least 2 total units"
+- **Tags:** `validation`, `status-change`, `blocked`
+
+### VL-05 · STATUS_CHANGE — Valid PA (auto-split 70/30)
+
+- **Endpoint:** `POST /api/validate`
+- **Input:** `{ "type": "STATUS_CHANGE", "unitsApproved": 10, "totalUnits": 10, "newStatus": "PA" }`
+- **Expected:**
+  - `200 OK`
+  - `isValid: true`
+  - `suggestedApproved > suggestedDenied`
+  - `suggestedApproved + suggestedDenied == 10`
+- **Tags:** `validation`, `partial-split`
+
+### VL-06 · PARTIAL_UNITS — Valid split (approved > denied)
+
+- **Endpoint:** `POST /api/validate`
+- **Input:** `{ "type": "PARTIAL_UNITS", "totalUnits": 10, "newApproved": 7, "newDenied": 3 }`
+- **Expected:**
+  - `200 OK`
+  - `isValid: true`
+  - `wasCorrected: false`
+- **Tags:** `validation`, `partial-units`
+
+### VL-07 · PARTIAL_UNITS — Auto-correct mismatch (approved + denied ≠ total)
+
+- **Endpoint:** `POST /api/validate`
+- **Input:** `{ "type": "PARTIAL_UNITS", "totalUnits": 10, "newApproved": 6, "newDenied": 6 }`
+- **Expected:**
+  - `200 OK`
+  - `wasCorrected: true`
+  - `correctedApproved + correctedDenied == 10`
+  - `correctedApproved > correctedDenied`
+- **Tags:** `validation`, `partial-units`, `auto-correct`
+
+### VL-08 · PARTIAL_UNITS — Auto-correct when denied ≥ approved
+
+- **Endpoint:** `POST /api/validate`
+- **Input:** `{ "type": "PARTIAL_UNITS", "totalUnits": 10, "newApproved": 3, "newDenied": 7 }`
+- **Expected:**
+  - `200 OK`
+  - `wasCorrected: true`
+  - `correctedApproved > correctedDenied`
+- **Tags:** `validation`, `partial-units`, `auto-correct`
+
+### VL-09 · VALIDATE — Missing `type` Field
+
+- **Endpoint:** `POST /api/validate`
+- **Input:** `{ "unitsApproved": 5, "totalUnits": 10 }` (no `type`)
+- **Expected:**
+  - `400 Bad Request`
+  - `isValid: false`
+  - `error` mentions "Missing 'type' field"
+- **Tags:** `validation`, `negative`
+
+### VL-10 · VALIDATE — Unknown type
+
+- **Endpoint:** `POST /api/validate`
+- **Input:** `{ "type": "UNKNOWN_TYPE" }`
+- **Expected:**
+  - `400 Bad Request`
+  - `error` mentions "Unknown type"
+- **Tags:** `validation`, `negative`
+
+---
+
+## 🗂️ Category 4: Negative / Edge Case Tests
+
+> Invalid inputs, malformed data, and boundary conditions.
+
+### NEG-01 · Parse Empty File
+
+- **Endpoint:** `POST /api/parse`
+- **Input:** Empty `.txt` file (0 bytes)
+- **Expected:**
+  - `200 OK`
+  - `detectedSchema: "INVALID"`
+  - `lines` is empty
+- **Tags:** `negative`, `edge-case`
+
+### NEG-02 · Parse Non-File Content (Random Text)
+
+- **Endpoint:** `POST /api/parse-text`
+- **Input:** `text/plain` body = `"Hello World, this is not a claim file"`
+- **Expected:**
+  - `200 OK`
+  - `detectedSchema: "INVALID"`
+- **Tags:** `negative`, `schema-detection`
+
+### NEG-03 · Parse File with Wrong Line Lengths
+
+- **Endpoint:** `POST /api/parse`
+- **Input:** MRX file with lines shorter/longer than 897 chars (MRX spec)
+- **Expected:**
+  - `200 OK`
+  - `detectedSchema: "MRX"`
+  - Affected `lines[n].isValid: false`
+  - `lines[n].globalError` contains "Length Mismatch"
+  - `alignmentTips` contains "Add N space(s)" or "Delete N char(s)"
+- **Tags:** `negative`, `line-length`, `validation`
+
+### NEG-04 · Parse File with Invalid Record Indicator
+
+- **Endpoint:** `POST /api/parse-text`
+- **Input:** MRX-format file where a data line starts with `"X"` instead of `"D"`
+- **Expected:**
+  - `200 OK`
+  - That line's `type: "Unknown"` · `isValid: false`
+  - `globalError` contains "Invalid Record Indicator"
+- **Tags:** `negative`, `record-indicator`
+
+### NEG-05 · Parse MRX with Trailer Record Count Mismatch
+
+- **Endpoint:** `POST /api/parse-text`
+- **Input:** MRX file where trailer's `Total Records` != actual data line count
+- **Expected:**
+  - `200 OK`
+  - `detectedSchema: "MRX"`
+  - `validationErrors` array contains "Trailer Record Count Mismatch"
+- **Tags:** `negative`, `mrx-structure`, `trailer`
+
+### NEG-06 · Parse MRX with Missing Header
+
+- **Endpoint:** `POST /api/parse-text`
+- **Input:** MRX file with no `H` record (starts with `D`)
+- **Expected:**
+  - `200 OK`
+  - `validationErrors` contains "Missing Header record"
+- **Tags:** `negative`, `mrx-structure`, `header`
+
+### NEG-07 · Parse MRX with Invalid Sender Code
+
+- **Endpoint:** `POST /api/parse-text`
+- **Input:** MRX file with Header `Sender Code` ≠ `"BCBSMN"`
+- **Expected:**
+  - `200 OK`
+  - `validationErrors` contains "Invalid Sender Code in Header"
+- **Tags:** `negative`, `mrx-structure`, `sender-code`
+
+### NEG-08 · Parse MRX Missing Trailer
+
+- **Endpoint:** `POST /api/parse-text`
+- **Input:** MRX file with no `T` record at the end
+- **Expected:**
+  - `200 OK`
+  - `validationErrors` contains "Missing Trailer record"
+- **Tags:** `negative`, `mrx-structure`, `trailer`
+
+### NEG-09 · Parse Multipart Without `file` Field
+
+- **Endpoint:** `POST /api/parse`
+- **Input:** `multipart/form-data` without any field named `file`
+- **Expected:**
+  - `400 Bad Request`
+  - Error message about missing `file` parameter
+- **Tags:** `negative`, `http-error`
+
+### NEG-10 · Send Non-Multipart to `/parse`
+
+- **Endpoint:** `POST /api/parse`
+- **Input:** `application/json` body (wrong content type)
+- **Expected:**
+  - `400 Bad Request`
+  - Error mentions "multipart/form-data" and hint to use `/parse-text`
+- **Tags:** `negative`, `content-type`
+
+### NEG-11 · Convert MRX to ACK with Non-MRX File
+
+- **Endpoint:** `POST /api/convert/mrx-to-ack`
+- **Input:** Upload an ACK file (non-MRX content)
+- **Expected:**
+  - Either `400 Bad Request` or `200 OK` with 0 data lines generated (graceful degradation)
+- **Tags:** `negative`, [convert](file:///d:/Antigravity/AntiGravity_Kit/magellen-responce/backend/src/main/java/com/mrx/fileparserengine/service/UnifiedParserService.java#861-873), `wrong-file-type`
+
+### NEG-12 · Timestamp with Insufficient Length for [date](file:///d:/Antigravity/AntiGravity_Kit/magellen-responce/backend/src/main/java/com/mrx/fileparserengine/controller/UnifiedParserController.java#302-359) substring
+
+- **Endpoint:** `POST /api/convert/mrx-to-ack`
+- **Input:** `timestamp=123` (fewer than 8 chars → substring(0,8) will throw)
+- **Expected:**
+  - `400 Bad Request` — does not crash with 500
+- **Tags:** `negative`, `edge-case`, `timestamp`
+
+---
+
+## 🗂️ Category 5: Security Tests
+
+> Input sanitization and injection prevention.
+
+### SEC-01 · XSS in Timestamp Parameter
+
+- **Endpoint:** `POST /api/convert/mrx-to-ack`
+- **Input:** `timestamp=<script>alert(1)</script>`
+- **Expected:**
+  - `400 Bad Request`
+  - `error` mentions "Invalid timestamp format"
+  - No HTML/script in response body
+- **Tags:** `security`, `xss`, `input-validation`
+
+### SEC-02 · Path Traversal in Timestamp Parameter
+
+- **Endpoint:** `POST /api/convert/mrx-to-ack`
+- **Input:** `timestamp=../../etc/passwd`
+- **Expected:**
+  - `400 Bad Request`
+  - Rejected by `ALLOWED_TIMESTAMP_PATTERN` regex
+- **Tags:** `security`, `path-traversal`
+
+### SEC-03 · SQL Injection in Validate Body
+
+- **Endpoint:** `POST /api/validate`
+- **Input:** `{ "type": "' OR 1=1 --", "unitsApproved": 5 }`
+- **Expected:**
+  - `400 Bad Request`
+  - Error mentions "Unknown type" — not a 500 or DB error
+- **Tags:** `security`, `sql-injection`
+
+### SEC-04 · Oversized File Upload (Stress)
+
+- **Endpoint:** `POST /api/parse`
+- **Input:** File > 100 MB
+- **Expected:**
+  - `413 Payload Too Large` OR handled gracefully without OOM crash
+  - Server continues to serve other requests after this
+- **Tags:** `security`, `dos-prevention`, `large-file`
+
+### SEC-05 · Timestamp Extension Normalization (.txt suffix removed)
+
+- **Endpoint:** `POST /api/convert/mrx-to-ack`
+- **Input:** `timestamp=20260209202425.txt`
+- **Expected:**
+  - `200 OK`
+  - `fileName` = `TEST.MCMSMN_CLAIMS_ACK_20260209202425.txt` (no double `.txt.txt`)
+- **Tags:** `security`, `filename-normalization`
+
+---
+
+## 🗂️ Category 6: Contract / Response Structure Tests
+
+> Verify the response shape matches what the frontend expects.
+
+### CTR-01 · Parse Response Fields
+
+- **Endpoint:** `POST /api/parse`
+- **Input:** Valid MRX file
+- **Expected Response Shape:**
+  ```json
+  {
+    "lines": [
+      {
+        "lineNumber": 1,
+        "raw": "H...",
+        "type": "Header",
+        "isValid": true,
+        "globalError": null,
+        "rawLength": 897,
+        "fields": [
+          {
+            "def": { "name": "...", "start": 1, "end": 1, "length": 1 },
+            "value": "H",
+            "isValid": true,
+            "error": null,
+            "lengthError": false
+          }
+        ]
+      }
+    ],
+    "summary": {
+      "total": 10,
+      "totalClaims": 8,
+      "valid": 8,
+      "invalid": 2,
+      "accepted": 6,
+      "rejected": 2
+    },
+    "detectedSchema": "MRX",
+    "rawContent": "...",
+    "validationErrors": null
+  }
+  ```
+- **Tags:** `contract`, `schema`
+
+### CTR-02 · Convert Response Fields
+
+- **Endpoint:** `POST /api/convert/mrx-to-ack`
+- **Input:** Valid MRX file
+- **Expected Response Shape:**
+  ```json
+  {
+    "content": "H...\nD...\nT...",
+    "fileName": "TEST.MCMSMN_CLAIMS_ACK_20260209202425.txt"
+  }
+  ```
+- **Tags:** `contract`, `schema`
+
+---
+
+## 🗂️ Category 7: ACK Line Structure Correctness
+
+> Verify generated ACK file has correct structure per spec.
+
+### ACK-01 · ACK Line Length
+
+- **Endpoint:** `POST /api/convert/mrx-to-ack`
+- **Input:** Valid MRX
+- **Expected:** Every line in the generated ACK content has length == ACK spec line length (220)
+- **Tags:** `functional`, `ack-structure`
+
+### ACK-02 · ACK Header Fields
+
+- **Endpoint:** `POST /api/convert/mrx-to-ack`
+- **Input:** Valid MRX with timestamp `20260209202425`
+- **Expected:** Header line (starts with `H`) contains:
+  - `"PRIME"` in Sender field
+  - `"BCBSMN"` in Receiver field
+  - Date `"20260209"` in Date field
+  - Original file reference in File Name field
+- **Tags:** `functional`, `ack-structure`, `header`
+
+### ACK-03 · ACK Trailer Record Count
+
+- **Endpoint:** `POST /api/convert/mrx-to-ack`
+- **Input:** Valid MRX with N data lines
+- **Expected:** Trailer `Total Records` field == N (exact match)
+- **Tags:** `functional`, `ack-structure`, `trailer`
+
+---
+
+## 🗂️ Category 8: RESP Line Structure Correctness
+
+> Verify generated RESP file has correct structure per spec.
+
+### RESP-01 · RESP Approved Line — Units Distribution (PD)
+
+- **Endpoint:** `POST /api/convert/mrx-to-resp`
+- **Input:** Valid MRX (no deny/partial params)
+- **Expected:** All Data lines have:
+  - `MRx Claim Status == "PD"`
+  - `Units approved == total units`
+  - `Units Denied == 0`
+- **Tags:** `functional`, `resp-structure`
+
+### RESP-02 · RESP Denied Line — Units Cleared (DY)
+
+- **Endpoint:** `POST /api/convert/mrx-to-resp`
+- **Input:** Valid MRX · `denyPercentage=100`
+- **Expected:** All eligible lines (units > 1) have:
+  - `MRx Claim Status == "DY"`
+  - `Units approved == 0`
+  - `Units Denied == total units`
+- **Tags:** `functional`, `resp-structure`, `deny`
+
+### RESP-03 · RESP Partial Line — PA Split Constraint
+
+- **Endpoint:** `POST /api/convert/mrx-to-resp`
+- **Input:** Valid MRX · `partialPercentage=100`
+- **Expected:** All eligible lines have:
+  - `MRx Claim Status == "PA"`
+  - `Units approved > Units Denied`
+  - `Units approved > 0` AND `Units Denied > 0`
+- **Tags:** `functional`, `resp-structure`, `partial`
+
+### RESP-04 · Single-Unit Claims Never Denied
+
+- **Endpoint:** `POST /api/convert/mrx-to-resp`
+- **Input:** MRX file with single-unit claims · `denyPercentage=100`
+- **Expected:** Single-unit data lines remain `"PD"` — never `"DY"` or `"PA"`
+- **Tags:** `functional`, `resp-structure`, `business-rule`
+
+---
+
+---
+
+## 🗂️ Category 9: File Masquerading / Content Spoofing Tests
+
+> What happens when someone renames an unrelated file (.pdf, .jpg, .xlsx, .csv, .zip) and uploads it with an MRX/ACK/RESP filename.
+
+> **Key Design Fact:** The backend uses **content fingerprinting**, NOT filename.
+> [detectSchema()](file:///d:/Antigravity/AntiGravity_Kit/magellen-responce/backend/src/main/java/com/mrx/fileparserengine/service/UnifiedParserService.java#874-915) checks: line length + first char + magic bytes (cols 2-26).
+> The filename (`fileNameHint`) is used **only for logging** — never for routing.
+
+### MASK-01 · PDF Renamed as MRX File
+
+- **Endpoint:** `POST /api/parse`
+- **Input:** A real PDF file renamed to `MRX_TEST.BCBSMN_PRIME_CLAIMS.txt`
+- **Why It Matters:** PDF header starts with `%PDF-`, binary content, short/irregular lines
+- **Expected:**
+  - `200 OK`
+  - `detectedSchema: "INVALID"` — PDF header does NOT match 921-char `H` + `BCBSMN`
+  - `lines` is empty · frontend shows "Unrecognized File Format"
+- **Tags:** `masquerade`, `security`, `file-spoofing`
+
+### MASK-02 · DOCX/XLSX Renamed as MRX File
+
+- **Endpoint:** `POST /api/parse`
+- **Input:** A `.docx` or `.xlsx` file renamed to `MRX_TEST.txt`
+- **Why It Matters:** Office files are ZIP archives. Binary content, no textual first line ≥ 900 chars
+- **Expected:**
+  - `200 OK`
+  - `detectedSchema: "INVALID"`
+- **Tags:** `masquerade`, `security`
+
+### MASK-03 · Image (JPG/PNG) Renamed as RESP File
+
+- **Endpoint:** `POST /api/parse`
+- **Input:** A `.jpg` image renamed to `TEST.PRIME_BCBSMN_GEN_CLAIMS_RESP.txt`
+- **Why It Matters:** JPEG starts with `FF D8 FF` magic bytes. First char is NOT 'H'
+- **Expected:**
+  - `200 OK`
+  - `detectedSchema: "INVALID"`
+- **Tags:** `masquerade`, `security`
+
+### MASK-04 · Plain CSV File Uploaded as ACK
+
+- **Endpoint:** `POST /api/parse`
+- **Input:** A normal CSV file (`Name,Age,Value\n...`) renamed to `TEST.MCMSMN_CLAIMS_ACK.txt`
+- **Why It Matters:** CSV lines are short (< 50 chars), won't match 220-char ACK requirement
+- **Expected:**
+  - `200 OK`
+  - `detectedSchema: "INVALID"`
+- **Tags:** `masquerade`, `edge-case`
+
+### MASK-05 · ACK File Uploaded to MRX Convert Endpoint
+
+- **Endpoint:** `POST /api/convert/mrx-to-ack`
+- **Input:** A valid ACK file uploaded (wrong type for this endpoint)
+- **Why It Matters:** Convert endpoint calls [parseFile()](file:///d:/Antigravity/AntiGravity_Kit/magellen-responce/backend/src/main/java/com/mrx/fileparserengine/controller/UnifiedParserController.java#66-115) internally. ACK content won't parse as MRX.
+- **Expected:**
+  - `200 OK` (endpoint succeeds)
+  - `content` has 0 data records (nothing to convert — no MRX data lines)
+  - OR graceful empty ACK with just Header + Trailer
+  - Does NOT crash with 500
+- **Tags:** `masquerade`, `wrong-file-type`, `functional`
+
+### MASK-06 · RESP File Uploaded to MRX-to-RESP Endpoint
+
+- **Endpoint:** `POST /api/convert/mrx-to-resp`
+- **Input:** A valid RESP file uploaded instead of MRX
+- **Expected:**
+  - `200 OK`
+  - Detected as RESP (not MRX), `dataLines` list will be empty (no MRX data to convert)
+  - Response `content` has Header + 0 data lines + Trailer
+  - Does NOT throw NullPointerException
+- **Tags:** `masquerade`, `wrong-file-type`
+
+### MASK-07 · Crafted Text File That Passes MRX Content Fingerprint
+
+- **Endpoint:** `POST /api/parse`
+- **Input:** A hand-crafted text file where:
+  - First line is exactly 921 characters
+  - Starts with `H`
+  - Cols 2–26 = `BCBSMN` (padded)
+  - But data lines are NOT real MRX structure
+- **Why It Matters:** This is the most sophisticated spoofing attempt — bypasses filename check AND line-length fingerprint
+- **Expected:**
+  - `200 OK`
+  - `detectedSchema: "MRX"` ← **WILL be detected as MRX** (this is expected behavior)
+  - BUT: data lines will have `isValid: false` and field errors everywhere
+  - `validationErrors` will contain "Trailer Record Count Mismatch" or "Missing Trailer record"
+  - The file is **not silently accepted** — validation errors surface all anomalies
+- **Tags:** `masquerade`, `security`, `crafted-input`, `⚠️ documents-known-behavior`
+
+### MASK-08 · Empty File with MRX Filename
+
+- **Endpoint:** `POST /api/parse`
+- **Input:** 0-byte file named `MRX_TEST.BCBSMN_PRIME_CLAIMS.txt`
+- **Expected:**
+  - `200 OK`
+  - `detectedSchema: "INVALID"` — `content.isEmpty()` → immediate return
+  - `lines` is empty
+- **Tags:** `masquerade`, `edge-case`
+
+### MASK-09 · Null Byte / Unicode in Filename (Filename Injection)
+
+- **Endpoint:** `POST /api/parse`
+- **Input:** Valid MRX content with a filename containing `null bytes`, unicode, or `../path` traversal sequences
+  - e.g., `filename="../../etc/passwd.txt"`
+- **Why It Matters:** `fileNameHint` is used in logging. Check it doesn't leak to response or cause path traversal.
+- **Expected:**
+  - `200 OK` — content is valid MRX, parses normally
+  - `detectedSchema: "MRX"`
+  - The malicious filename does NOT appear in the response body
+  - Server logs may contain it (logging is OK) but response is clean
+- **Tags:** `masquerade`, `security`, `path-traversal`, `filename-injection`
+
+---
+
+> ### 💡 Summary: What the Backend Does Right
+>
+> - ✅ **Content fingerprinting** — filename is never used for routing
+> - ✅ **Strict line length check** — binary files with short/irregular lines → INVALID
+> - ✅ **Magic byte check** — `BCBSMN` / `PRIME` at exact column positions
+> - ⚠️ **Crafted files (MASK-07)** — CAN pass schema detection but will fail field-level validation
+> - ✅ **Filename injection (MASK-09)** — `fileNameHint` flows only to logging, not response
+
+---
+
+## ✅ Test Implementation Plan
+
+Once approved, tests will be implemented in the following files:
+
+| File                             | Type             | Framework |
+| -------------------------------- | ---------------- | --------- |
+| `scenario_smoke.js`              | Smoke            | `axios`   |
+| `scenario_functional_parse.js`   | Functional       | `axios`   |
+| `scenario_functional_convert.js` | Functional       | `axios`   |
+| `scenario_validation.js`         | Validation Logic | `axios`   |
+| `scenario_negative.js`           | Negative/Edge    | `axios`   |
+| `scenario_security.js`           | Security         | `axios`   |
+| `scenario_struct_ack.js`         | ACK Structure    | `axios`   |
+| `scenario_struct_resp.js`        | RESP Structure   | `axios`   |
+| `run_all_scenarios.js`           | Orchestrator     | Node.js   |
+
+### Reporting
+
+- Each file writes to a `reports/{scenario}.json` file
+- `run_all_scenarios.js` aggregates into `reports/master_report.json` + `master_report.md`
+
+---
+
+## 📊 Scenario Summary
+
+| Category                          | Count  | Priority    |
+| --------------------------------- | ------ | ----------- |
+| Smoke                             | 2      | 🔴 Critical |
+| Functional (Parse)                | 6      | 🔴 Critical |
+| Functional (Convert)              | 10     | 🔴 Critical |
+| Validation Logic                  | 10     | 🔴 Critical |
+| Negative / Edge Cases             | 12     | 🟡 High     |
+| Security                          | 5      | 🔴 Critical |
+| Contract / Shape                  | 2      | 🟡 High     |
+| ACK Structure                     | 3      | 🟡 High     |
+| RESP Structure                    | 4      | 🟡 High     |
+| **File Masquerading** *(NEW)*     | **9**  | 🔴 Critical |
+| **TOTAL**                         | **63** | —           |

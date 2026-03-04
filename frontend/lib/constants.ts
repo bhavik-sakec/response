@@ -1,4 +1,40 @@
 
+export const SCHEMAS = {
+    ACK: 'ACK',
+    RESP: 'RESP',
+    MRX: 'MRX',
+    INVALID: 'INVALID'
+} as const;
+
+export const ACK_STATUS = {
+    ACCEPTED: 'A',
+    REJECTED: 'R'
+} as const;
+
+export const RESP_STATUS = {
+    PAID: 'PD',
+    PARTIAL: 'PA',
+    DENIED: 'DY'
+} as const;
+
+export const LINE_TYPES = {
+    HEADER: 'Header',
+    DATA: 'Data',
+    TRAILER: 'Trailer',
+    UNKNOWN: 'Unknown'
+} as const;
+
+export const FIELD_NAMES = {
+    STATUS: 'Status',
+    MRX_CLAIM_STATUS: 'MRx Claim Status',
+    REJECT_ID: 'Reject ID',
+    REJECT_REASON: 'Reject Reason',
+    REJECTION_CODE: 'Rejection Code',
+    UNITS_APPROVED: 'Units approved',
+    UNITS_DENIED: 'Units Denied',
+    DENIAL_CODE: 'Denial Code'
+} as const;
+
 export const ACK_DENIAL_CODES = [
     { code: 'EDI3108', short: 'Reject to client - Client\'s Claim Number Not on File' },
     { code: 'EDI3119', short: 'Reject to client - Duplicate Claim # Submitted' },

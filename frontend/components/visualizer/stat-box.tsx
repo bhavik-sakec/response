@@ -12,13 +12,31 @@ interface StatBoxProps {
 }
 
 export const StatBox = ({ label, value, icon: Icon, colorClass, borderClass }: StatBoxProps) => (
-    <div className={cn("flex-1 flex flex-col justify-center px-4 border-r border-border min-w-[120px] transition-colors hover:bg-muted/30 group", borderClass)}>
-        <div className="flex items-center justify-between mb-1">
-            <span className="text-[11px] tracking-widest uppercase text-muted-foreground font-mono font-bold group-hover:text-foreground transition-colors">{label}</span>
-            <Icon className={cn("w-4 h-4 opacity-50 group-hover:opacity-100 transition-opacity", colorClass)} />
+    <div className={cn(
+        "relative flex-1 flex flex-col justify-center px-3 border-r border-border min-w-[100px] transition-all group overflow-hidden bg-background h-full",
+        borderClass
+    )}>
+        {/* Subtle Background Grid/Pattern */}
+        <div className="absolute inset-0 opacity-[0.02] bg-[linear-gradient(to_right,#80808012_1px,transparent_1px),linear-gradient(to_bottom,#80808012_1px,transparent_1px)] bg-[size:16px_16px] pointer-events-none" />
+        
+
+        <div className="relative z-10">
+            <div className="flex items-center gap-1.5 mb-1">
+                <div className={cn("w-0.5 h-2.5", colorClass ? colorClass.replace('text-', 'bg-') : "bg-muted-foreground/30")} />
+                <span className="text-[8px] tracking-[0.2em] uppercase text-muted-foreground font-black group-hover:text-foreground transition-colors leading-none truncate pr-2">
+                    {label}
+                </span>
+            </div>
+            <div className={cn("text-lg font-black tracking-tighter font-mono tabular-nums leading-none", colorClass)}>
+                {value}
+            </div>
         </div>
-        <div className={cn("text-2xl font-mono font-bold tracking-tighter", colorClass)}>
-            {value}
-        </div>
+
+        {/* Status Indicator Bar at bottom */}
+        <div className={cn(
+            "absolute bottom-0 left-0 h-[1.5px] w-0 group-hover:w-full transition-all duration-500 ease-out",
+            colorClass ? colorClass.replace('text-', 'bg-') : "bg-primary"
+        )} />
     </div>
 );
+

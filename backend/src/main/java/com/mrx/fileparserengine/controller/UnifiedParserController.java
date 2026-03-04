@@ -67,53 +67,81 @@ public class UnifiedParserController {
      * Parse any file (ACK/RESP/MRX) with auto-detection.
      * Returns ParseResult-compatible JSON for the frontend.
      *
+     * ⚡ Returns Callable&lt;ResponseEntity&gt; — Spring MVC executes it on an async
+     * thread pool with a 5-minute timeout (configured in AsyncConfig).
+     * Without async, a 40K-line MRX file blocks the Tomcat NIO thread for
+     * ~20–40 seconds during parsing + JSON serialization, hitting the default
+     * 30s connection timeout and returning nothing to the browser.
+     *
      * @param file The uploaded file
-     * @return Unified parse response
+     * @return Unified parse response (async for all files)
      */
     @PostMapping(value = "/parse", consumes = "multipart/form-data")
-    public ResponseEntity<UnifiedParseResponse> parseFile(@RequestParam("file") MultipartFile file) {
+    public java.util.concurrent.Callable<ResponseEntity<UnifiedParseResponse>> parseFile(
+            @RequestParam("file") MultipartFile file) {
+
+        // Read bytes on the Tomcat thread (MultipartFile may not be available later)
+        final byte[] fileBytes;
+        final String fileNameHint = file.getOriginalFilename();
         try {
-            log.info("Received file upload for unified parsing: {}", file.getOriginalFilename());
-
-            String fileContent = new String(file.getBytes(), StandardCharsets.UTF_8);
-            String fileNameHint = file.getOriginalFilename();
-
-            UnifiedParseResponse response = unifiedParserService.parseFile(fileContent, fileNameHint);
-
-            // Always return 200 — frontend checks detectedSchema to handle INVALID itself.
-            // Returning 400 for INVALID caused ApiError to be thrown before the friendly
-            // "Invalid file format" message could be shown.
-            return ResponseEntity.ok(response);
-
+            fileBytes = file.getBytes();
         } catch (IOException e) {
             log.error("Error reading uploaded file", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
-        } catch (Exception e) {
-            log.error("Error parsing file", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+            return () -> ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
         }
+
+        log.info("Received file upload for unified parsing: {} ({} bytes)", fileNameHint, fileBytes.length);
+
+        // ⚡ Parsing + JSON serialization runs on async thread (not Tomcat NIO thread)
+        return () -> {
+            try {
+                String fileContent = new String(fileBytes, StandardCharsets.UTF_8);
+
+                long parseStart = System.currentTimeMillis();
+                UnifiedParseResponse response = unifiedParserService.parseFile(fileContent, fileNameHint);
+                long parseMs = System.currentTimeMillis() - parseStart;
+
+                int lineCount = response.getLines() != null ? response.getLines().size() : 0;
+                log.info("Parsed {} lines in {}ms. Schema: {}", lineCount, parseMs, response.getDetectedSchema());
+
+                return ResponseEntity.ok(response);
+
+            } catch (Exception e) {
+                log.error("Error parsing file", e);
+                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+            }
+        };
     }
 
     /**
      * Parse raw text content with auto-detection.
+     * ⚡ Uses async Callable (same as /parse endpoint).
      *
      * @param fileContent The raw file content
      * @return Unified parse response
      */
     @PostMapping("/parse-text")
-    public ResponseEntity<UnifiedParseResponse> parseText(@RequestBody String fileContent) {
-        try {
-            log.info("Received text content for unified parsing");
+    public java.util.concurrent.Callable<ResponseEntity<UnifiedParseResponse>> parseText(
+            @RequestBody String fileContent) {
 
-            UnifiedParseResponse response = unifiedParserService.parseFile(fileContent, null);
+        log.info("Received text content for unified parsing ({} chars)", fileContent.length());
 
-            // Always return 200 — let the frontend handle INVALID schema gracefully.
-            return ResponseEntity.ok(response);
+        return () -> {
+            try {
+                long parseStart = System.currentTimeMillis();
+                UnifiedParseResponse response = unifiedParserService.parseFile(fileContent, null);
+                long parseMs = System.currentTimeMillis() - parseStart;
 
-        } catch (Exception e) {
-            log.error("Error parsing text content", e);
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
-        }
+                int lineCount = response.getLines() != null ? response.getLines().size() : 0;
+                log.info("Parsed {} lines in {}ms. Schema: {}", lineCount, parseMs, response.getDetectedSchema());
+
+                return ResponseEntity.ok(response);
+
+            } catch (Exception e) {
+                log.error("Error parsing text content", e);
+                return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).build();
+            }
+        };
     }
 
     private static final String ALLOWED_TIMESTAMP_PATTERN = "^[a-zA-Z0-9._-]*$";
@@ -227,7 +255,7 @@ public class UnifiedParserController {
 
             return ResponseEntity.ok(Map.of(
                     "content", respContent,
-                    "fileName", "TEST.PRIME_BCBSMN_GEN_CLAIMS_RESP_" + timestamp + ".txt"));
+                    "fileName", "TEST.PRIME.BCBSMN_GEN_CLAIM_RESP_" + timestamp + ".txt"));
 
         } catch (IllegalArgumentException e) {
             log.warn("Security validation failed: {}", e.getMessage());

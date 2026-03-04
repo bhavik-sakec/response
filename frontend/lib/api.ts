@@ -75,7 +75,7 @@ export async function checkHealth(): Promise<boolean> {
  */
 export async function parseFileOnBackend(file: File): Promise<{
     lines: ParsedLine[];
-    summary: { total: number; valid: number; invalid: number; accepted: number; rejected: number };
+    summary: { total: number; totalClaims: number; valid: number; invalid: number; accepted: number; rejected: number };
     detectedSchema: 'ACK' | 'RESP' | 'MRX' | 'INVALID';
     rawContent: string;
     validationErrors?: string[];
@@ -105,7 +105,7 @@ export async function parseFileOnBackend(file: File): Promise<{
  */
 export async function parseTextOnBackend(text: string): Promise<{
     lines: ParsedLine[];
-    summary: { total: number; valid: number; invalid: number; accepted: number; rejected: number };
+    summary: { total: number; totalClaims: number; valid: number; invalid: number; accepted: number; rejected: number };
     detectedSchema: 'ACK' | 'RESP' | 'MRX' | 'INVALID';
     rawContent: string;
 }> {

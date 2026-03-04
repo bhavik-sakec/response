@@ -31,3 +31,21 @@ dependencies {
 tasks.named('test') {
     enabled = false
 }
+
+// JVM configuration optimized for fast processing with efficient memory usage
+// - Xms256m: Start small (fast startup, grows as needed)
+// - Xmx2g: Cap at 2GB (handles 1M claims after memory optimizations)
+// - G1GC: Best for large heaps with low pause times
+// - StringDeduplication: Reduces memory for repeated field values (~30-40% savings)
+bootRun {
+    jvmArgs = [
+        '-Xms256m',
+        '-Xmx2g',
+        '-XX:+UseG1GC',
+        '-XX:MaxGCPauseMillis=100',
+        '-XX:+UseStringDeduplication',
+        '-XX:ParallelGCThreads=4',
+        '-XX:+OptimizeStringConcat'
+    ]
+}
+

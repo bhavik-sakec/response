@@ -1,0 +1,22 @@
+{
+  "name": "Magellan Response",
+  "children": [
+    {
+      "name": "API Tests",
+      "children": [
+        { "name": "Smoke Tests", "messageRegex": ".*smoke.*", "traceRegex": ".*smoke.*" },
+        { "name": "Functional Tests", "messageRegex": ".*functional.*", "traceRegex": ".*functional.*" },
+        { "name": "Validation Tests", "messageRegex": ".*validation.*", "traceRegex": ".*validation.*" },
+        { "name": "Negative Tests", "messageRegex": ".*negative.*", "traceRegex": ".*negative.*" },
+        { "name": "Security Tests", "messageRegex": ".*security.*", "traceRegex": ".*security.*" },
+        { "name": "Contract Tests", "messageRegex": ".*contract.*", "traceRegex": ".*contract.*" }
+      ]
+    },
+    {
+      "name": "UI Tests",
+      "children": [
+        { "name": "Selenium Tests", "messageRegex": ".*selenium.*", "traceRegex": ".*selenium.*" }
+      ]
+    }
+  ]
+}

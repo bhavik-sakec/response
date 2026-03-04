@@ -14,6 +14,7 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 public class SummaryDTO {
     private int total;
+    private int totalClaims;
     private int valid;
     private int invalid;
     private int accepted;

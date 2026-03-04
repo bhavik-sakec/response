@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState, useCallback, useEffect } from 'react';
+import { useRef, useState, useCallback, useEffect, useMemo } from 'react';
 import { VirtuosoHandle } from 'react-virtuoso';
 import { format } from 'date-fns';
 import { parseFileOnBackend, convertMrxToAckOnBackend, convertMrxToRespOnBackend, convertMrxToCsvOnBackend, ApiError, checkHealth } from '../lib/api';
@@ -35,55 +35,11 @@ import {
 
 import { toast } from 'sonner';
 import { ParseResult, ParsedLine, ParsedField } from '@/lib/types';
-import { cn } from '../lib/utils';
+import { SCHEMAS, RESP_STATUS, ACK_STATUS, LINE_TYPES } from '@/lib/constants';
+import { cn, normalizeSummary, downloadString } from '@/lib/utils';
 import { GridView } from './visualizer/grid-view';
+import { ErrorBanner } from './visualizer/error-banner';
 
-const ErrorBanner = ({ error, onDismiss }: { error: string, onDismiss: () => void }) => {
-    const isConnectionError = error.toLowerCase().includes('connect') || error.toLowerCase().includes('engine') || error.toLowerCase().includes('server');
-
-    return (
-        <div className="relative mt-8 group animate-in fade-in slide-in-from-bottom-4 zoom-in-95 duration-500 flex justify-center w-full">
-            {/* Glow Effect */}
-            <div className="absolute -inset-1 bg-gradient-to-r from-rose-500/20 via-rose-500/40 to-rose-500/20 rounded-2xl blur-xl opacity-50 block group-hover:opacity-75 transition-opacity duration-500" />
-            
-            <div className="relative flex w-full max-w-md bg-background/80 backdrop-blur-xl border border-rose-500/30 rounded-2xl overflow-hidden shadow-2xl">
-                <div className="w-1.5 bg-rose-500 shrink-0" />
-                <div className="p-5 flex items-start gap-4 flex-1">
-                    <div className="w-10 h-10 rounded-xl bg-rose-500/10 border border-rose-500/20 flex items-center justify-center shrink-0">
-                        {isConnectionError ? (
-                            <WifiOff className="w-5 h-5 text-rose-500 animate-pulse" />
-                        ) : (
-                            <AlertTriangle className="w-5 h-5 text-rose-500" />
-                        )}
-                    </div>
-                    <div className="flex-1 space-y-1 text-left">
-                        <div className="flex items-center justify-between">
-                            <h4 className="text-[10px] font-black uppercase tracking-[0.2em] text-rose-500">
-                                {isConnectionError ? 'Service Outage Detected' : 'Forge Processing Error'}
-                            </h4>
-                            <button 
-                                onClick={onDismiss}
-                                aria-label="Dismiss error"
-                                className="p-1 hover:bg-rose-500/10 rounded-md transition-colors text-zinc-500 hover:text-rose-500"
-                            >
-                                <X className="w-3.5 h-3.5" />
-                            </button>
-                        </div>
-                        <p className="text-xs text-zinc-300 font-medium leading-relaxed pr-2">
-                            {error}
-                        </p>
-                        {isConnectionError && (
-                            <div className="pt-2 flex items-center gap-2">
-                                <div className="w-1 h-1 rounded-full bg-rose-500 animate-pulse" />
-                                <span className="text-[9px] text-rose-500/80 font-bold uppercase tracking-widest leading-none">Establishing safe reconnection...</span>
-                            </div>
-                        )}
-                    </div>
-                </div>
-            </div>
-        </div>
-    );
-};
 
 
 export function MrxConverter({ pendingFile, onPendingFileConsumed, onOpenInDataMatrix }: {
@@ -143,7 +99,9 @@ export function MrxConverter({ pendingFile, onPendingFileConsumed, onOpenInDataM
     const fileInputRef = useRef<HTMLInputElement>(null);
     const virtuosoRef = useRef<VirtuosoHandle>(null);
 
-    const [result, setResult] = useState<ParseResult>({ lines: [], summary: { total: 0, valid: 0, invalid: 0, accepted: 0, rejected: 0 } });
+    const [result, setResult] = useState<ParseResult>({ lines: [], summary: { total: 0, totalClaims: 0, valid: 0, invalid: 0, accepted: 0, rejected: 0, partial: 0 } });
+
+    const dataLineCount = useMemo(() => result.lines.filter(l => l.type === LINE_TYPES.DATA).length, [result.lines]);
 
     const processFile = useCallback(async (file: File) => {
         // Guard: prevent concurrent uploads
@@ -154,14 +112,15 @@ export function MrxConverter({ pendingFile, onPendingFileConsumed, onOpenInDataM
         setFileName(file.name);
         setOriginalFile(file);
 
-        const tsMatch = file.name.match(/\d{14}/);
+        // Match any 10+ digit numeric run — covers 13-digit and 14-digit (ccyymmddhhmmss) timestamps
+        const tsMatch = file.name.match(/\d{10,}/);
         setMrxTimestamp(tsMatch ? tsMatch[0] : format(new Date(), 'yyyyMMddHHmmss'));
 
         try {
             // Send file to backend for parsing
             const backendResponse = await parseFileOnBackend(file);
 
-            if (backendResponse.detectedSchema !== 'MRX') {
+            if (backendResponse.detectedSchema !== SCHEMAS.MRX) {
                 // Not an MRX file (or invalid)
                 setError('Invalid file format. Please upload an MRX (.txt) file.');
                 setIsLoading(false);
@@ -180,10 +139,10 @@ export function MrxConverter({ pendingFile, onPendingFileConsumed, onOpenInDataM
                 }))
             }));
 
-            const parsedResult = {
+            const parsedResult: ParseResult = {
                 lines: parsedLines,
-                summary: backendResponse.summary,
-                validationErrors: backendResponse.validationErrors  // ← was silently dropped before
+                summary: normalizeSummary(backendResponse.summary),
+                validationErrors: backendResponse.validationErrors
             };
 
             // Artificial delay for "processing" feel
@@ -248,14 +207,14 @@ export function MrxConverter({ pendingFile, onPendingFileConsumed, onOpenInDataM
         setGeneratingType(type);
 
         try {
-            if (type === 'ACK') {
+            if (type === SCHEMAS.ACK) {
                 const result = await convertMrxToAckOnBackend(originalFile, mrxTimestamp, {
                     rejectPercentage: rejectConfig.enabled && rejectConfig.mode === 'PCT' ? rejectConfig.percentage : 0,
                     rejectCount: rejectConfig.enabled && rejectConfig.mode === 'CNT' ? rejectConfig.count : 0,
                     randomizeRejectCodes: rejectConfig.enabled ? rejectConfig.randomizeRejectCodes : false
                 });
                 downloadString(result.content, result.fileName);
-            } else if (type === 'RESP') {
+            } else if (type === SCHEMAS.RESP) {
                 const result = await convertMrxToRespOnBackend(originalFile, mrxTimestamp, {
                     denyPercentage: denyConfig.enabled && denyConfig.mode === 'PCT' ? denyConfig.percentage : 0,
                     denyCount: denyConfig.enabled && denyConfig.mode === 'CNT' ? denyConfig.count : 0,
@@ -289,7 +248,7 @@ export function MrxConverter({ pendingFile, onPendingFileConsumed, onOpenInDataM
         setGeneratingType(type);
 
         try {
-            const modConfig = type === 'ACK' ? {
+            const modConfig = type === SCHEMAS.ACK ? {
                 rejectPercentage: rejectConfig.enabled && rejectConfig.mode === 'PCT' ? rejectConfig.percentage : 0,
                 rejectCount: rejectConfig.enabled && rejectConfig.mode === 'CNT' ? rejectConfig.count : 0,
                 randomizeRejectCodes: rejectConfig.enabled ? rejectConfig.randomizeRejectCodes : false
@@ -303,7 +262,7 @@ export function MrxConverter({ pendingFile, onPendingFileConsumed, onOpenInDataM
                 randomizeDenialCodes: denyConfig.enabled ? denyConfig.randomizeDenialCodes : false,
             };
 
-            const result = await (type === 'ACK' ? convertMrxToAckOnBackend(originalFile, mrxTimestamp, modConfig) : convertMrxToRespOnBackend(originalFile, mrxTimestamp, modConfig));
+            const result = await (type === SCHEMAS.ACK ? convertMrxToAckOnBackend(originalFile, mrxTimestamp, modConfig) : convertMrxToRespOnBackend(originalFile, mrxTimestamp, modConfig));
             onOpenInDataMatrix?.(result.content, result.fileName);
             toast.success(`${type} opened in Data Matrix`, {
                 description: `Converted ${fileName} → ${result.fileName}`,
@@ -373,7 +332,7 @@ export function MrxConverter({ pendingFile, onPendingFileConsumed, onOpenInDataM
                                     setContent('');
                                     setOriginalFile(null);
                                     setFileName(null);
-                                    setResult({ lines: [], summary: { total: 0, valid: 0, invalid: 0, accepted: 0, rejected: 0 } });
+                                    setResult({ lines: [], summary: { total: 0, totalClaims: 0, valid: 0, invalid: 0, accepted: 0, rejected: 0, partial: 0 } });
                                 }}
                                 aria-label="Clear loaded file"
                                 className="w-10 h-10 rounded-xl bg-muted/10 border border-border flex items-center justify-center hover:bg-rose-500/10 hover:border-rose-500/20 transition-all"
@@ -737,7 +696,7 @@ export function MrxConverter({ pendingFile, onPendingFileConsumed, onOpenInDataM
 
                     <footer className="h-10 border-t border-border px-8 flex items-center justify-between bg-background/50">
                         <div className="flex items-center gap-4 text-[9px] uppercase tracking-widest text-muted-foreground">
-                            <span>Total Records: {result.lines.filter(l => l.type === 'Data').length}</span>
+                            <span>Total Records: {dataLineCount}</span>
                             <span className="w-1 h-1 bg-border rounded-full" />
                             <span>Signature: {mrxTimestamp}</span>
                         </div>

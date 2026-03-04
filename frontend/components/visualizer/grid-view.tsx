@@ -1,11 +1,11 @@
 'use client';
 
 import React, { memo, useState, useCallback, useEffect, useRef, useMemo } from 'react';
+import { RESP_DENIAL_CODES, ACK_DENIAL_CODES, SCHEMAS, ACK_STATUS, RESP_STATUS, LINE_TYPES, FIELD_NAMES } from '@/lib/constants';
+import { ParseResult, ParsedLine, FieldDefinition, ParsedField } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { Virtuoso, VirtuosoHandle } from 'react-virtuoso';
 import { Select, SelectContent, SelectItem, SelectTrigger } from '../ui/select';
-import { RESP_DENIAL_CODES, ACK_DENIAL_CODES } from '@/lib/constants';
-import { ParseResult, ParsedLine, FieldDefinition, ParsedField } from '@/lib/types';
 
 interface GridViewProps {
     result: ParseResult;
@@ -127,12 +127,12 @@ const GridRow = memo(({
     }, [activeCol]);
 
     const isRejected = line.fields.some(f =>
-        (f.def.name === 'Status' && f.value.trim() === 'R') ||
-        (f.def.name === 'MRx Claim Status' && f.value.trim() === 'DY')
+        (f.def.name === FIELD_NAMES.STATUS && f.value.trim() === ACK_STATUS.REJECTED) ||
+        (f.def.name === FIELD_NAMES.MRX_CLAIM_STATUS && f.value.trim() === RESP_STATUS.DENIED)
     );
 
     const isPartial = line.fields.some(f =>
-        f.def.name === 'MRx Claim Status' && f.value.trim() === 'PA'
+        f.def.name === FIELD_NAMES.MRX_CLAIM_STATUS && f.value.trim() === RESP_STATUS.PARTIAL
     );
 
     // Backend sets lengthError=true when line overflows or fields are missing/truncated
@@ -217,7 +217,7 @@ const GridRow = memo(({
                                     isSelect ? (
                                         <Select
                                             value={field.value.trim() || undefined}
-                                            onValueChange={(val) => handleFieldUpdate(originalIndex, field.def, val)}
+                                            onValueChange={(val: string) => handleFieldUpdate(originalIndex, field.def, val)}
                                         >
                                             <SelectTrigger 
                                                 className="w-full h-full border-0 bg-transparent p-0 flex items-center justify-center focus:ring-0 focus-visible:ring-0 focus-visible:border-0 focus:outline-none focus-visible:outline-none shadow-none text-[11px] font-semibold text-foreground [&_svg:last-child]:w-3.5 [&_svg:last-child]:h-3.5"
@@ -230,27 +230,27 @@ const GridRow = memo(({
                                                 sideOffset={4}
                                                 align="start"
                                             >
-                                                {field.def.name === 'Status' && schema === 'ACK' && (
+                                                {field.def.name === FIELD_NAMES.STATUS && schema === SCHEMAS.ACK && (
                                                     <>
-                                                        <SelectItem value="A">A (Accepted)</SelectItem>
-                                                        <SelectItem value="R">R (Rejected)</SelectItem>
+                                                        <SelectItem value={ACK_STATUS.ACCEPTED}>{ACK_STATUS.ACCEPTED} (Accepted)</SelectItem>
+                                                        <SelectItem value={ACK_STATUS.REJECTED}>{ACK_STATUS.REJECTED} (Rejected)</SelectItem>
                                                     </>
                                                 )}
-                                                {field.def.name === 'MRx Claim Status' && schema === 'RESP' && (
+                                                {field.def.name === FIELD_NAMES.MRX_CLAIM_STATUS && schema === SCHEMAS.RESP && (
                                                     <>
-                                                        <SelectItem value="PD">PD (Paid)</SelectItem>
-                                                        <SelectItem value="DY">DY (Denied)</SelectItem>
-                                                        <SelectItem value="PA">PA (Partial)</SelectItem>
+                                                        <SelectItem value={RESP_STATUS.PAID}>{RESP_STATUS.PAID} (Paid)</SelectItem>
+                                                        <SelectItem value={RESP_STATUS.DENIED}>{RESP_STATUS.DENIED} (Denied)</SelectItem>
+                                                        <SelectItem value={RESP_STATUS.PARTIAL}>{RESP_STATUS.PARTIAL} (Partial)</SelectItem>
                                                     </>
                                                 )}
-                                                {field.def.name === 'Reject ID' && schema === 'ACK' && (
+                                                {field.def.name === FIELD_NAMES.REJECT_ID && schema === SCHEMAS.ACK && (
                                                     ACK_DENIAL_CODES.map(c => (
                                                         <SelectItem key={c.code} value={c.code} className="text-[10px]">
                                                             {c.code}: {c.short}
                                                         </SelectItem>
                                                     ))
                                                 )}
-                                                {field.def.name === 'Denial Code' && schema === 'RESP' && (
+                                                {field.def.name === FIELD_NAMES.DENIAL_CODE && schema === SCHEMAS.RESP && (
                                                     RESP_DENIAL_CODES.map(c => (
                                                         <SelectItem key={c.code} value={c.code} className="text-[10px]">
                                                             {c.code}: {c.short}
@@ -307,7 +307,7 @@ export function GridView({
     // Map dataRows to include originalIndex for correct state updates
     const dataRows = useMemo(() => result.lines
         .map((line, originalIndex) => ({ line, originalIndex }))
-        .filter(item => item.line.type === 'Data'), [result.lines]);
+        .filter(item => item.line.type === LINE_TYPES.DATA), [result.lines]);
 
 
     const [activeCell, setActiveCellState] = useState<{ row: number, col: number } | null>(() => {
@@ -319,8 +319,13 @@ export function GridView({
         setActiveCellState(cell);
     }, []);
 
-    const firstDataLine = dataRows[0]?.line || result.lines.find(l => l.type === 'Data');
+    const firstDataLine = dataRows[0]?.line || result.lines.find(l => l.type === LINE_TYPES.DATA);
     const headerFields = firstDataLine?.fields || [];
+
+    // Stable header component reference to prevent Virtuoso from re-mounting on every render
+    const HeaderComponent = useMemo(() => {
+        return function GridHeader() { return <GridHeaderLine fields={headerFields} />; };
+    }, [headerFields]);
 
     useEffect(() => {
         if (activeCell && virtuosoRef.current) {
@@ -331,6 +336,46 @@ export function GridView({
             });
         }
     }, [activeCell, virtuosoRef]);
+
+    // Stable refs for values used inside itemContent to avoid re-creating the callback
+    const dataRowsRef = useRef(dataRows);
+    dataRowsRef.current = dataRows;
+    const editingFieldRef = useRef(editingField);
+    editingFieldRef.current = editingField;
+    const activeCellRef = useRef(activeCell);
+    activeCellRef.current = activeCell;
+    const selectedRowsRef = useRef(selectedRows);
+    selectedRowsRef.current = selectedRows;
+
+    // Stable key computation — allows Virtuoso to efficiently recycle DOM nodes
+    const computeItemKey = useCallback((index: number) => {
+        return dataRowsRef.current[index]?.originalIndex ?? index;
+    }, []);
+
+    // Stable itemContent callback — never changes reference, reads from refs
+    const itemContent = useCallback((index: number) => {
+        const item = dataRowsRef.current[index];
+        const ef = editingFieldRef.current;
+        const ac = activeCellRef.current;
+        const sr = selectedRowsRef.current;
+        return (
+            <GridRow
+                index={index}
+                originalIndex={item.originalIndex}
+                line={item.line}
+                schema={schema}
+                editingCol={ef?.lineIdx === item.originalIndex ? ef.fieldIdx : null}
+                editingValue={ef?.lineIdx === item.originalIndex ? ef.value : null}
+                setEditingField={setEditingField}
+                handleFieldUpdate={handleFieldUpdate}
+                isFieldEditable={isFieldEditable}
+                isDropdownField={isDropdownField}
+                activeCol={ac?.row === index ? ac.col : null}
+                setActiveCell={setActiveCell}
+                isSelected={sr.has(index)}
+            />
+        );
+    }, [schema, setEditingField, handleFieldUpdate, isFieldEditable, isDropdownField, setActiveCell]);
 
     const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
         if (editingField) return;
@@ -370,6 +415,13 @@ export function GridView({
         }
     }, [activeCell, dataRows, editingField, isFieldEditable, setEditingField]);
 
+    // Stable Virtuoso components object — avoids object recreation on every render
+    const virtuosoComponents = useMemo(() => ({
+        Header: HeaderComponent,
+        Scroller: GridScroller,
+        List: GridList
+    }), [HeaderComponent]);
+
     return (
         <div 
             className="flex-1 relative h-full w-full focus:outline-none bg-background"
@@ -383,31 +435,10 @@ export function GridView({
                     totalCount={dataRows.length}
                     overscan={20}
                     increaseViewportBy={500}
-                    components={{
-                        Header: () => <GridHeaderLine fields={headerFields} />,
-                        Scroller: GridScroller,
-                        List: GridList
-                    }}
-                    itemContent={(index) => {
-                        const item = dataRows[index];
-                        return (
-                            <GridRow
-                                index={index}
-                                originalIndex={item.originalIndex}
-                                line={item.line}
-                                schema={schema}
-                                editingCol={editingField?.lineIdx === item.originalIndex ? editingField.fieldIdx : null}
-                                editingValue={editingField?.lineIdx === item.originalIndex ? editingField.value : null}
-                                setEditingField={setEditingField}
-                                handleFieldUpdate={handleFieldUpdate}
-                                isFieldEditable={isFieldEditable}
-                                isDropdownField={isDropdownField}
-                                activeCol={activeCell?.row === index ? activeCell.col : null}
-                                setActiveCell={setActiveCell}
-                                isSelected={selectedRows.has(index)}
-                            />
-                        );
-                    }}
+                    fixedItemHeight={37}
+                    computeItemKey={computeItemKey}
+                    components={virtuosoComponents}
+                    itemContent={itemContent}
                 />
             </div>
         </div>

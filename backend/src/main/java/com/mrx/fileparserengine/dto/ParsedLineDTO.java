@@ -5,17 +5,21 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.List;
 
 /**
  * DTO mirroring the frontend's ParsedLine interface.
  * Contains the parsed result of a single line in a fixed-width file.
+ *
+ * Memory optimization: null fields are excluded from JSON serialization.
  */
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
+@JsonInclude(JsonInclude.Include.NON_NULL)
 public class ParsedLineDTO {
     private int lineNumber;
     private String raw;

@@ -45,10 +45,12 @@ export interface ParseResult {
     lines: ParsedLine[];
     summary: {
         total: number;
+        totalClaims: number;
         valid: number;
         invalid: number;
         accepted: number;
         rejected: number;
+        partial: number;
     };
     detectedSchema?: 'ACK' | 'RESP' | 'MRX' | 'INVALID';
     rawContent?: string;
